@@ -72,6 +72,10 @@ if (initialHash.startsWith('drill/')) {
   go(initialHash || 'home');
 }
 
+if (!S.state.settings.onboarded) {
+  onboardingSheet(refreshChip);
+}
+
 await initNetwork(() => processOutbox().then(count => {
   if (count) {
     toast(`已自动分析 ${count} 条闪存`);
@@ -83,10 +87,6 @@ await initializePlatform({
   openDrill,
   closeOverlay: closeSheet,
 });
-
-if (!S.state.settings.onboarded) {
-  setTimeout(() => onboardingSheet(refreshChip), 350);
-}
 
 if (!Capacitor.isNativePlatform() && 'serviceWorker' in navigator) {
   navigator.serviceWorker.register('sw.js').catch(() => {});

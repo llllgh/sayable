@@ -17,17 +17,32 @@ import {
   writeLocalLog,
 } from '../src/storage/database.ts';
 import { createDailyBackup, exportSnapshot } from '../src/storage/backup.ts';
-import { clearApiKey, getApiKey, setApiKey } from '../src/platform/secure.ts';
+import {
+  clearApiKey,
+  clearProfileCredentials,
+  getApiKey,
+  getLlmApiKey,
+  getSpeechApiKey,
+  setLlmApiKey,
+  setSpeechApiKey,
+} from '../src/platform/secure.ts';
 import { LADDER_DAYS, isOwned, nextReview } from '../src/core/scheduler.ts';
 import {
   CURRENT_STATE_FORMAT_VERSION,
   migratePersistedState,
 } from '../src/storage/state-migrations.ts';
+import {
+  DEFAULT_SERVICE_REGION,
+  DEFAULT_VOICE_MODE,
+  getServiceProfile,
+  hasRequiredCredentials,
+  normalizeServiceRegion,
+  normalizeVoiceMode,
+} from '../src/speech/profiles.ts';
 
 const KEY = 'sayable.v1';
 const WEEK = 7 * 864e5;
-const DEFAULT_BASE_URL = '';
-const DEFAULT_MODEL = '';
+const DEFAULT_PROFILE = getServiceProfile(DEFAULT_SERVICE_REGION);
 
 /* 间隔阶梯：天。box 5 = 毕业候选 */
 export const LADDER = [...LADDER_DAYS];
@@ -45,10 +60,16 @@ export const state = {
   notificationReplies: [],
   compressions: [],
   settings: {
-    baseUrl: DEFAULT_BASE_URL,
+    providerMode: 'profile',
+    serviceRegion: DEFAULT_SERVICE_REGION,
+    voiceMode: DEFAULT_VOICE_MODE,
+    onboardingValidationVersion: 0,
+    baseUrl: '',
     apiKey: '',          // 仅驻留内存；持久化时剔除，原生端写入 Keystore
-    model: DEFAULT_MODEL,
-    protocol: 'chat_completions',
+    speechApiKey: '',    // 与 LLM Key 分开存放，可按区域独立切换
+    model: '',
+    protocol: DEFAULT_PROFILE.llm.protocol,
+    ttsVoice: DEFAULT_PROFILE.speech.defaultVoice,
     remindAt: '21:30',
     notificationsEnabled: false,
     notificationsEnabledAt: 0,
@@ -71,6 +92,7 @@ let lastPersistenceError = null;
 function persistableState() {
   const settings = { ...state.settings };
   delete settings.apiKey;
+  delete settings.speechApiKey;
   return {
     formatVersion: CURRENT_STATE_FORMAT_VERSION,
     profile: state.profile,
@@ -87,6 +109,18 @@ function persistableState() {
 function hydrate(d) {
   Object.assign(state.profile, d?.profile || {});
   Object.assign(state.settings, d?.settings || {});
+  state.settings.serviceRegion = normalizeServiceRegion(state.settings.serviceRegion);
+  state.settings.voiceMode = normalizeVoiceMode(state.settings.voiceMode);
+  if (state.settings.providerMode !== 'custom') {
+    const profile = getServiceProfile(state.settings.serviceRegion);
+    Object.assign(state.settings, {
+      providerMode: 'profile',
+      baseUrl: '',
+      model: '',
+      protocol: profile.llm.protocol,
+      ttsVoice: state.settings.ttsVoice || profile.speech.defaultVoice,
+    });
+  }
   state.items = Array.isArray(d?.items) ? d.items : [];
   state.inbox = (Array.isArray(d?.inbox) ? d.inbox : []).map(f => ({
     status: 'raw',
@@ -123,9 +157,22 @@ export async function load() {
     hydrate(data);
   }
 
-  const legacyKey = data?.settings?.apiKey || '';
-  if (legacyKey) await setApiKey(legacyKey);
-  state.settings.apiKey = await getApiKey();
+  const region = normalizeServiceRegion(state.settings.serviceRegion);
+  const legacyKey = data?.settings?.apiKey || await getApiKey();
+  let llmApiKey = await getLlmApiKey(region);
+  if (!llmApiKey && legacyKey) {
+    await setLlmApiKey(region, legacyKey);
+    llmApiKey = legacyKey;
+  }
+  if (legacyKey) await clearApiKey();
+  state.settings.apiKey = llmApiKey;
+  state.settings.speechApiKey = await getSpeechApiKey(region);
+  if (!hasRequiredCredentials(
+    state.settings.apiKey,
+    state.settings.speechApiKey,
+  ) || Number(state.settings.onboardingValidationVersion || 0) < 1) {
+    state.settings.onboarded = false;
+  }
 
   await save();
   if (migratedLegacy) localStorage.removeItem(KEY);
@@ -155,35 +202,104 @@ export function exportJSON() {
 export async function exportToFile() {
   await exportSnapshot(exportJSON());
 }
-export function importJSON(txt) {
+export async function importJSON(txt) {
   const d = JSON.parse(txt);
   if (!d || !Array.isArray(d.items)) throw new Error('格式不对');
-  const key = state.settings.apiKey;
   hydrate(migratePersistedState(d));
-  state.settings.apiKey = key;
-  save();
+  const region = normalizeServiceRegion(state.settings.serviceRegion);
+  state.settings.apiKey = await getLlmApiKey(region);
+  state.settings.speechApiKey = await getSpeechApiKey(region);
+  await save();
 }
 
 export async function setProviderConfig(config) {
-  await setApiKey(config.apiKey || '');
-  Object.assign(state.settings, {
-    baseUrl: (config.baseUrl || '').trim(),
+  const region = normalizeServiceRegion(config.serviceRegion || state.settings.serviceRegion);
+  const providerMode = config.providerMode === 'custom' ? 'custom' : 'profile';
+  const profile = getServiceProfile(region);
+  await setLlmApiKey(region, config.apiKey || '');
+  const next = {
+    providerMode,
+    serviceRegion: region,
     apiKey: (config.apiKey || '').trim(),
-    model: (config.model || '').trim(),
-    protocol: config.protocol || 'chat_completions',
+    protocol: providerMode === 'profile'
+      ? profile.llm.protocol
+      : (config.protocol || 'chat_completions'),
+  };
+  if (providerMode === 'custom') {
+    Object.assign(next, {
+      baseUrl: (config.baseUrl || '').trim(),
+      model: (config.model || '').trim(),
+    });
+  } else {
+    Object.assign(next, { baseUrl: '', model: '' });
+  }
+  Object.assign(state.settings, next);
+  await save();
+}
+
+export async function setServiceRegion(value) {
+  const region = normalizeServiceRegion(value);
+  const profile = getServiceProfile(region);
+  Object.assign(state.settings, {
+    providerMode: 'profile',
+    serviceRegion: region,
+    baseUrl: '',
+    model: '',
+    protocol: profile.llm.protocol,
+    ttsVoice: profile.speech.defaultVoice,
+    apiKey: await getLlmApiKey(region),
+    speechApiKey: await getSpeechApiKey(region),
   });
   await save();
 }
 
+export async function setSpeechConfig(config) {
+  const region = normalizeServiceRegion(config.serviceRegion || state.settings.serviceRegion);
+  await setSpeechApiKey(region, config.apiKey || '');
+  Object.assign(state.settings, {
+    serviceRegion: region,
+    voiceMode: normalizeVoiceMode(config.voiceMode),
+    speechApiKey: (config.apiKey || '').trim(),
+    ttsVoice: (config.ttsVoice || getServiceProfile(region).speech.defaultVoice).trim(),
+  });
+  await save();
+}
+
+export function activeServiceProfile() {
+  return getServiceProfile(state.settings.serviceRegion);
+}
+
+export function activeProviderConfig() {
+  if (state.settings.providerMode === 'custom') {
+    return {
+      protocol: state.settings.protocol,
+      baseUrl: state.settings.baseUrl,
+      model: state.settings.model,
+    };
+  }
+  const profile = activeServiceProfile();
+  return {
+    protocol: profile.llm.protocol,
+    baseUrl: profile.llm.baseUrl,
+    model: profile.llm.defaultModel,
+  };
+}
+
 export async function resetAll() {
   await clearPersistedState();
-  await clearApiKey();
+  await clearProfileCredentials();
   localStorage.removeItem(KEY);
 }
 
 export const uid = () => Math.random().toString(36).slice(2, 10) + Date.now().toString(36).slice(-4);
 export const now = () => Date.now();
-export const isLive = () => !!(state.settings.apiKey && state.settings.baseUrl && state.settings.model);
+export const isLive = () => {
+  const provider = activeProviderConfig();
+  return !!(state.settings.apiKey && provider.baseUrl && provider.model);
+};
+export const isCloudSpeechReady = () => (
+  state.settings.voiceMode === 'cloud' && !!state.settings.speechApiKey
+);
 
 export function track(type, detail = '') {
   state.log.push({ at: now(), type, detail });

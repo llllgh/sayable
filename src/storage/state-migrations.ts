@@ -1,4 +1,12 @@
-export const CURRENT_STATE_FORMAT_VERSION = 3;
+import {
+  DEFAULT_SERVICE_REGION,
+  DEFAULT_VOICE_MODE,
+  getServiceProfile,
+  normalizeServiceRegion,
+  normalizeVoiceMode,
+} from '../speech/profiles';
+
+export const CURRENT_STATE_FORMAT_VERSION = 4;
 
 type JsonRecord = Record<string, unknown>;
 
@@ -72,6 +80,38 @@ function compressionSignature(compression: unknown): string {
   ].join('\u001f'));
 }
 
+function migrateSettings(value: unknown): JsonRecord {
+  const settings: JsonRecord = isRecord(value) ? { ...value } : {};
+  const serviceRegion = normalizeServiceRegion(settings.serviceRegion);
+  const profile = getServiceProfile(serviceRegion);
+  const hasLegacyProvider = Boolean(
+    String(settings.baseUrl || '').trim()
+    || String(settings.model || '').trim(),
+  );
+  const providerMode = settings.providerMode === 'custom'
+    || settings.providerMode === 'profile'
+    ? settings.providerMode
+    : (hasLegacyProvider ? 'custom' : 'profile');
+
+  return {
+    ...settings,
+    providerMode,
+    serviceRegion: settings.serviceRegion
+      ? serviceRegion
+      : DEFAULT_SERVICE_REGION,
+    voiceMode: normalizeVoiceMode(settings.voiceMode || DEFAULT_VOICE_MODE),
+    baseUrl: providerMode === 'profile'
+      ? ''
+      : String(settings.baseUrl || ''),
+    model: providerMode === 'profile'
+      ? ''
+      : String(settings.model || ''),
+    protocol: providerMode === 'profile'
+      ? profile.llm.protocol
+      : String(settings.protocol || 'chat_completions'),
+  };
+}
+
 export function migratePersistedState(input: unknown): unknown {
   if (!isRecord(input)) return input;
 
@@ -112,6 +152,7 @@ export function migratePersistedState(input: unknown): unknown {
     inbox,
     compressions,
     notificationReplies,
+    settings: migrateSettings(input.settings),
   };
   delete migrated.seeded;
   return migrated;

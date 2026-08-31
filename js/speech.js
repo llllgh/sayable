@@ -4,16 +4,34 @@
 
 import { Capacitor } from '@capacitor/core';
 import { TextToSpeech } from '@capacitor-community/text-to-speech';
+import {
+  activeServiceProfile,
+  isCloudSpeechReady,
+  state,
+} from './store.js';
+import { assessSpeech } from '../src/speech/assessment.ts';
+import {
+  canUseCloudRecognition,
+  cancelCloudRecognition,
+  probeCloudRecognition,
+  startCloudRecognition,
+  synthesizeCloudSpeech,
+} from '../src/speech/cloud.ts';
 
 const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-export const canListen = () => !!SR;
-export const canSpeak = () => 'speechSynthesis' in window;
+export const canListen = () => (
+  (isCloudSpeechReady() && canUseCloudRecognition(state.settings.speechApiKey))
+  || !!SR
+);
+export const canSpeak = () => isCloudSpeechReady() || 'speechSynthesis' in window;
 
 let rec = null;
+let cloudStop = null;
+let cloudStarting = false;
+let cloudStopRequested = false;
 
-export function listen({ lang = 'en-US', onText, onEnd, onError }) {
+function listenWithSystem({ lang = 'en-US', onText, onEnd, onError }) {
   if (!SR) { onError?.(new Error('当前浏览器不支持语音输入，请用键盘输入')); return () => {}; }
-  stop();
   rec = new SR();
   rec.lang = lang; rec.continuous = true; rec.interimResults = true;
   let finalText = '';
@@ -30,9 +48,94 @@ export function listen({ lang = 'en-US', onText, onEnd, onError }) {
   try { rec.start(); } catch (e) { onError?.(e); }
   return stop;
 }
-export function stop() { try { rec?.stop(); } catch (e) {} rec = null; }
 
-export async function say(text, { rate = 0.94 } = {}) {
+export function listen(options) {
+  stop();
+  if (
+    isCloudSpeechReady()
+    && canUseCloudRecognition(state.settings.speechApiKey)
+  ) {
+    let latest = null;
+    cloudStarting = true;
+    cloudStopRequested = false;
+    startCloudRecognition({
+      profile: activeServiceProfile(),
+      apiKey: state.settings.speechApiKey,
+      onResult: (result) => {
+        latest = result;
+        options.onText?.(result.text, result.final ? result.text : '');
+        if (result.final) {
+          options.onAssessment?.(assessSpeech(
+            options.referenceText || '',
+            result.text,
+            result,
+          ));
+        }
+      },
+      onEnd: () => {
+        cloudStop = null;
+        options.onEnd?.(latest?.text || '');
+      },
+      onError: (error) => {
+        cloudStop = null;
+        options.onError?.(error);
+      },
+    }).then((stopCloud) => {
+      cloudStarting = false;
+      cloudStop = stopCloud;
+      if (cloudStopRequested) stopCloud();
+    }).catch((error) => {
+      cloudStarting = false;
+      if (SR) {
+        listenWithSystem(options);
+      } else {
+        options.onError?.(error instanceof Error ? error : new Error(String(error)));
+      }
+    });
+    return stop;
+  }
+  return listenWithSystem(options);
+}
+
+export function stop() {
+  try { rec?.stop(); } catch (e) {}
+  rec = null;
+  if (cloudStarting) cloudStopRequested = true;
+  if (cloudStop) {
+    cloudStop();
+    cloudStop = null;
+  }
+}
+
+export async function testCloudSpeech(profile, apiKey) {
+  const normalizedKey = String(apiKey || '').trim();
+  if (!normalizedKey) throw new Error('请填写语音 API Key');
+  await probeCloudRecognition({ profile, apiKey: normalizedKey });
+  await synthesizeCloudSpeech({
+    profile,
+    apiKey: normalizedKey,
+    text: 'Your voice practice is ready.',
+    voice: profile.speech.defaultVoice,
+    rate: 0.94,
+  });
+}
+
+export async function say(text, { rate = 0.94, cloudRequired = false } = {}) {
+  if (isCloudSpeechReady() && text) {
+    try {
+      await synthesizeCloudSpeech({
+        profile: activeServiceProfile(),
+        apiKey: state.settings.speechApiKey,
+        text: text.replace(/\b([XYZ])\b/g, 'something'),
+        voice: state.settings.ttsVoice,
+        rate,
+      });
+      return;
+    } catch (error) {
+      if (cloudRequired) throw error;
+      // Cloud speech is an enhancement; the system voice remains the fallback.
+    }
+  }
   if (Capacitor.isNativePlatform() && text) {
     try {
       await TextToSpeech.stop();
@@ -59,4 +162,9 @@ export async function say(text, { rate = 0.94 } = {}) {
     if (v) u.voice = v;
     speechSynthesis.speak(u);
   } catch (e) {}
+}
+
+export async function cancel() {
+  stop();
+  await cancelCloudRecognition();
 }

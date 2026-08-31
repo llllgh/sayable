@@ -9,20 +9,20 @@
 
 ```
 ┌──────────────────────────────────────────────┐
-│  iOS / Android 原生外壳（Capacitor 6）        │
+│  iOS / Android 原生外壳（Capacitor 8）        │
 │  ├─ WebView：现有前端（原生 ESM，Vite 打包）   │
 │  ├─ SQLite 插件      → 业务数据（唯一真源）    │
 │  ├─ SecureStorage    → API Key（Keychain）    │
 │  ├─ LocalNotifications → 隔日召回             │
-│  ├─ SpeechRecognition / TTS → 语音            │
+│  ├─ System / Cloud Speech → ASR、反馈、TTS     │
 │  └─ Share Extension / Intent → 2 秒捕获       │
 └──────────────────────────────────────────────┘
-                     │ HTTPS（直连，无中间服务器）
+                     │ HTTPS / WebSocket（MVP 直连）
                      ▼
-        用户自己配置的 OpenAI-compatible 接入点
+       中国大陆 / 海外 Provider Profile
 ```
 
-**无服务端。** 唯一曾经需要服务端的理由是推送，本地通知已经覆盖。
+**MVP 无服务端。** 唯一使用者手动配置模型和语音凭证，请求从设备直达对应厂商。正式版增加 OIDC 登录、订阅额度和模型代理，但不改变业务层 Provider 接口，详见 §13。
 
 选型理由与被否方案见 `MVP-TODO.md` §0。
 
@@ -204,13 +204,14 @@ export function isOwned(box: number, realUse: number) {
 ```ts
 type Protocol = 'chat_completions' | 'anthropic_messages' | 'responses';
 interface ProviderConfig {
+  region: 'cn' | 'global';
   protocol: Protocol; baseUrl: string; apiKey: string; model: string;
   supportsJsonMode?: boolean;  // 由自检探测，不让用户填
   timeoutMs: number;           // 默认 30000
 }
 ```
 
-三种协议只在 `request()` 和 `extractText()` 两个函数里有分支，其余共用。
+三种协议只在 `request()` 和 `extractText()` 两个函数里有分支，其余共用。普通界面只选择区域并填写凭证；Base URL、公共模型名和协议来自内置 Profile Catalog。高级配置允许覆盖模型名，以应对账号权限和模型下线，但不得重新引入构建期 `.env` 预填。
 
 ### 6.2 自检（首启唯一一次配置的核心体验）
 
@@ -323,7 +324,7 @@ await LocalNotifications.schedule({ notifications: [{
 | --- | --- |
 | API Key | 仅 Keychain / Keystore；不进 SQLite、不进日志、不进导出文件 |
 | 导出文件 | 含全部学习数据，**不含 Key**；导入后提示重填 |
-| 网络 | 只请求用户配置的 baseUrl；不做任何遥测上报 |
+| 网络 | 只请求当前区域 Profile 声明的厂商端点或用户显式覆盖的接入点；不做任何遥测上报 |
 | 日志 | 仅本地，环形 500 条，可查看可导出，永不自动上传 |
 | 备份 | App 文档目录，每日一次，滚动 7 份；用户可另存到系统文件 |
 
@@ -419,6 +420,8 @@ Android 侧不存在这个问题，`ACTION_SEND` 直接唤起主 App 的一个�
 
 不要反过来——反过来会在国产机上直接不可用。
 
+云端增强语音启用后，原生录音模块直接向当前区域 Profile 的流式 ASR 发送音频。未配置凭证、离线、超时或厂商不可用时，必须退回上述系统输入路径，不能让语音按钮失效。
+
 ### 12.5 Android 其他必做项
 
 - [ ] **返回键**：`@capacitor/app` 的 `backButton` 必须接管。不接管的话，用户在任何页面按返回都会直接退出 App——这是最容易被忽略、体验最致命的一条。
@@ -445,3 +448,106 @@ Android 侧不存在这个问题，`ACTION_SEND` 直接唤起主 App 的一个�
 4. Android 的通知坑（12.2）**必须在架构里预留「回前台重排」机制**，这个机制在 iOS 上也是有益的；反过来先做 iOS 则容易漏掉它，后期补要改调度逻辑。
 
 `MVP-TODO.md` 的 W1~W4 排期在 Android 上执行，iOS 只在 W4 末做一次 `npx cap add ios` 验证——业务代码不用改，只需补 12.3 的 Share Extension 与签名。
+
+---
+
+## 13. 语音 Profile 与长期服务端
+
+### 13.1 用户可见模型
+
+语音配置只有两个正交维度：
+
+```ts
+type VoiceMode = 'system' | 'cloud';
+type ServiceRegion = 'cn' | 'global';
+```
+
+- `system`：使用操作系统语音输入和 TTS，不需要网络凭证。
+- `cloud + cn`：火山引擎大模型流式 ASR、豆包 TTS 2.0。
+- `cloud + global`：BytePlus ASR 2.0、Seed Speech TTS。
+
+UI 显示「系统语音 / 云端增强」和「中国大陆 / 海外」，不要求普通用户理解厂商、协议、Base URL 或 Resource ID。首次启动在同一页分别填写模型与语音 Key，并依次验证文本模型、ASR 鉴权和 TTS；三项成功前不能关闭或跳过引导。后续可在设置页更新凭证。
+
+### 13.2 Profile Catalog
+
+Profile 是版本化的程序配置，不是用户数据：
+
+```ts
+interface ServiceProfile {
+  id: ServiceRegion;
+  llm: {
+    protocol: Protocol;
+    baseUrl: string;
+    defaultModel: string;
+  };
+  speech: {
+    provider: 'volcengine' | 'byteplus';
+    asrUrl: string;
+    asrResourceId: string;
+    ttsUrl: string;
+    ttsResourceId: string;
+    defaultVoice: string;
+  };
+}
+```
+
+Base URL、公共模型名、协议和公共 Resource ID 由 Profile 固定。账号专属 App ID、API Key 和确实无法统一的部署 ID 才进入 SecureStorage。MVP 将 LLM 与 Speech 凭证分槽并按区域隔离；同一 Profile 的 ASR/TTS 在厂商允许时共用 Speech Key。中国大陆和海外 Profile 必须各自声明完整配置，不能假设只替换域名即可。
+
+### 13.3 语音能力接口
+
+业务层不得依赖厂商事件格式：
+
+```ts
+interface SpeechRecognitionProvider {
+  start(options: RecognitionOptions): Promise<RecognitionSession>;
+}
+
+interface PronunciationAssessmentProvider {
+  assess(input: AssessmentInput): Promise<PronunciationResult>;
+}
+
+interface SpeechSynthesisProvider {
+  speak(input: SynthesisInput): Promise<SynthesisSession>;
+}
+```
+
+归一化结果至少包含：
+
+- ASR：partial/final 文本、词级起止时间、置信度。
+- MVP 反馈：可懂度、完整度、流利度、节奏及可解释的问题列表。
+- TTS：音频格式、采样率、首包时延、播放状态。
+- 原始词级时间戳：MVP 只在本次评分的内存链路中使用，不写入自动备份；不同厂商分数不得直接横向比较。
+
+跟读有参考文本，可以评估漏读、增读和节奏；自由表达没有稳定参考文本，只报告转写和流利度，不伪装成精确发音评分。LLM 可以把结构化指标解释成自然语言，但不得生成原始分数。
+
+### 13.4 Android 音频链路
+
+1. 原生 `AudioRecord` 采集 16 kHz、16-bit、单声道 PCM。
+2. 音频以 200 ms 小块通过原生 WebSocket 发送，由服务端断句并返回 partial / final。海外 Profile 使用 `bigmodel_async`、`X-Api-Key` 和 `volc.seedasr.sauc.duration`。
+3. 停止说话后尽快取得 final ASR；P95 目标不超过 3 秒。
+4. TTS 通过 `/api/v3/tts/unidirectional` 接收 Base64 MP3 分片；MVP 在完整短句到达后缓存，并在 Android 使用原生 `MediaPlayer` 播放，避免 WebView 对私有文件 URI 和 data URI 的媒体限制。缓存键为 `profile + voice + rate + text hash`，边接收边播放根据真实时延基线再决定。
+5. 云端失败、离线或凭证不完整时退回系统语音。
+
+海外 ModelArk Profile 使用 Responses API。对于支持可控推理的模型，请求设置 `reasoning.effort = minimal`，避免结构化短回答的输出预算被推理内容耗尽。
+
+长效云厂商密钥只能用于单用户 MVP，保存在 Keychain/Keystore 中，不进入 SQLite、日志和导出。WebView 不直接持有需要 AK/SK 签名的高权限云凭证；相关协议由原生插件封装。
+
+### 13.5 正式版后端
+
+正式版保留相同的 `VoiceMode`、`ServiceRegion` 和业务接口，将凭证与路由迁到服务端：
+
+```text
+App -- OIDC Authorization Code + PKCE --> Identity Provider
+App -- Sayable access token -----------> API Gateway
+API Gateway -- entitlement/quota ------> Billing ledger
+Speech/LLM Gateway -- provider route --> Volcengine / BytePlus / Alibaba / Azure / Google / AWS
+```
+
+- OIDC 只负责认证用户身份。
+- entitlement / quota 负责订阅状态、token 或语音时长余额、限流和幂等扣费。
+- Gateway 持有厂商凭证，按区域、能力、健康度和成本路由。
+- App 不再接触厂商 API Key，只持有短期 Sayable access token。
+- 原始音频默认不持久化；需要诊断时必须显式授权，并设置区域内存储和自动删除期限。
+- 发音评测后端可在国内接入阿里云专用评测，在海外接入 Azure Pronunciation Assessment；Google/AWS 作为 ASR/TTS 适配器扩展，不用 Base URL 兼容假设代替真实协议适配。
+
+该迁移只替换 Provider 的传输实现，不改变页面、业务数据和评分结果契约。

@@ -12,7 +12,13 @@
    4) 未配置模型时只允许离线捕获，不伪造分析结果。
    ========================================================================= */
 
-import { state, isLive, llmUsage, recordLlmUsage } from './store.js';
+import {
+  activeProviderConfig,
+  state,
+  isLive,
+  llmUsage,
+  recordLlmUsage,
+} from './store.js';
 import { requestStructured, preflightProvider } from '../src/llm/client.ts';
 import { LlmError, userMessage } from '../src/llm/errors.ts';
 import {
@@ -63,7 +69,8 @@ const SYS = `你是一名专门服务「被动词汇量很大、主动调用通�
 5. 解释「为什么这样更好」时，必须对照学习者的原话/中文，点出**具体病症**（例如：先铺垫再给结论、用长否定代替紧凑名词短语、把一个因果关系拆成三句、用 very/a lot of 代替精确动词），不要空谈「更自然」。
 6. 口语版必须真的能一口气说完（约 15 秒 / 25~35 词以内）。
 7. 立刻练习题：只给交际功能和场景，**绝不能在题目里出现目标骨架本身或它的完整答案**。
-8. 全部 JSON 输出，不要 markdown 代码块，不要多余解释。中文字段用中文，英文字段用英文。`;
+8. 不得虚构用户未提供的项目、平台、人员、故障或业务事实；上下文不足时使用中性的 X / Y / Z 占位信息。
+9. 全部 JSON 输出，不要 markdown 代码块，不要多余解释。中文字段用中文，英文字段用英文。`;
 
 const SCHEMA_HINT = `严格按此 JSON 结构输出：
 {
@@ -116,11 +123,12 @@ export function detectMode(text) {
 
 function providerConfig(overrides = {}) {
   const s = state.settings;
+  const active = activeProviderConfig();
   return {
-    protocol: s.protocol || 'chat_completions',
-    baseUrl: s.baseUrl,
+    protocol: active.protocol || 'chat_completions',
+    baseUrl: active.baseUrl,
     apiKey: s.apiKey,
-    model: s.model,
+    model: active.model,
     timeoutMs: Number(s.timeoutMs || 30000),
     maxRetry: Number(s.maxRetry ?? 3),
     supportsJsonMode: s.supportsJsonMode,
@@ -238,6 +246,7 @@ export async function preflight(scenario, items) {
 - 每个骨架配一道 drill：给这场会的具体情境，让他现在就说一遍（不许泄露答案）。
 - 另外给最多 2 个这场会专属的新骨架（他还没有的），要求是这场会里高概率派上用场。
 - 最后给一句「这场会你最该避免的一个中文式说法」。
+- 只使用学习者给出的会议描述和已有骨架，不得擅自增加具体平台、产品、人员或故障。
 只输出 JSON：
 {"reuse":[{"id":"已有骨架的id","reason":"这场会为什么需要它（中文一句）","drill":"这场会情境下的造句题（中文，不泄露答案）"}],"fresh":[{"skeleton":"...","zh":"...","why":"...","seeds":["..."],"drill":"..."}],"avoid":"这场会最该避免的一个中文式说法（中文一句，给出反例和替代方向）"}`;
   const list = items.map(i => `- id=${i.id} | ${i.skeleton}（${i.zh}）| 我造过：${i.mine.map(m => m.text).join(' ; ') || '（还没造过）'}`).join('\n');

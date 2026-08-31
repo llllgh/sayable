@@ -17,9 +17,16 @@ adb install -r android/app/build/outputs/apk/release/app-release.apk
 也可以把 APK 发送到手机后直接打开。Android 可能要求允许当前文件管理器“安装未知应用”。
 如果此前安装过 Debug APK，需要先卸载；Debug 与 Release 的签名不同，不能互相覆盖。
 
-首次打开时，Base URL、API Key 和模型标识均为空，应用不会从构建环境预填或内置任何接入点信息。按所用模型服务的文档填写配置并点击“测一下并进入”；也可以暂不接入，仅使用离线闪存。
+首次打开时选择“中国大陆 / 海外”，并分别填写空白的模型 API Key 和语音 API Key。应用会验证文本模型、ASR 鉴权和 TTS，全部成功后才保存凭证并进入主界面。协议、公共 Base URL 和公共模型名由区域 Profile 管理，不会从本机构建环境读取私人接入参数。高级自定义配置默认折叠，其中的用户输入框在首次启动时为空。
 
-应用支持 Chat Completions、Responses API 和 Anthropic Messages 兼容接口。模型标识可以是模型名或服务商分配的 Endpoint ID。
+应用支持 Chat Completions、Responses API 和 Anthropic Messages 兼容接口。需要使用其他兼容服务时，可以在设置页展开高级模型配置。
+
+## 语音模式
+
+- 系统语音：无需凭证，朗读使用 Android TTS；语音输入不可用时聚焦输入框，由系统输入法提供语音输入。
+- 云端增强：首启时填写独立的语音 API Key，使用当前区域 Profile 的流式 ASR 和自然语音 TTS；后续可在设置页更换。
+- 云端语音失败、离线或未配置时，朗读自动回退到系统 TTS；录音原始数据不写入数据库或备份。
+- MVP 反馈只覆盖可懂度、完整度、流利度和节奏，不宣称提供音素级发音评分。
 
 ## Android 权限
 
@@ -35,8 +42,8 @@ adb install -r android/app/build/outputs/apk/release/app-release.apk
 ## 数据与隐私
 
 - 学习数据：原生 SQLite；Web 版使用 IndexedDB。
-- API Key：Android Keystore，不进入 SQLite、日志、备份或 APK。
-- 模型请求：从设备直接发送到配置的接入点。
+- 模型与语音 API Key：按区域分别写入 Android Keystore，不进入 SQLite、Capacitor 日志、备份或 APK。
+- 模型与云端语音请求：从设备直接发送到当前区域 Profile 的服务。
 - 自动备份：每天一次，应用私有目录保留最近 7 份。
 - 手动备份：设置 → 导出 JSON，不包含 API Key。
 - 系统云备份：关闭，避免 SQLite 和安全配置进入 Android 云备份。
@@ -94,8 +101,8 @@ JAVA_HOME=/opt/homebrew/opt/openjdk@21/libexec/openjdk.jdk/Contents/Home \
 
 工程与产品契约见：
 
-- [`docs/MVP-TODO.md`](docs/MVP-TODO.md)
-- [`docs/PRD.md`](docs/PRD.md)
-- [`docs/ENGINEERING.md`](docs/ENGINEERING.md)
+- [`sayable_docs_MVP-TODO.md`](sayable_docs_MVP-TODO.md)
+- [`sayable_docs_PRD.md`](sayable_docs_PRD.md)
+- [`sayable_docs_ENGINEERING.md`](sayable_docs_ENGINEERING.md)
 
 提示词质量基线需要把 [`eval/cases.jsonl`](eval/cases.jsonl) 中的占位样例替换为 20 至 30 条真实语料后再建立，避免用合成样例制造虚假的质量结论。

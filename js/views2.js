@@ -15,6 +15,11 @@ import {
   showTestRecall,
 } from '../src/platform/notifications.ts';
 import { rescheduleNotifications } from '../src/platform/lifecycle.ts';
+import {
+  getServiceProfile,
+  hasRequiredCredentials,
+  initialOnboardingRegion,
+} from '../src/speech/profiles.ts';
 
 /* ---------------------------------------------------------------- 压缩台 */
 export function viewCompress(app) {
@@ -288,80 +293,139 @@ export function profileSheet() {
 /* ---------------------------------------------------------------- 首启接入 */
 export function onboardingSheet(onReady) {
   const s = S.state.settings;
-  openSheet('连接你的模型', `
-    <p class="sub zh" style="margin-bottom:14px">只配置一次。请求从本机直达你的接入点，Key 不会写入学习数据库或备份。</p>
-    <label class="fld"><span>协议</span><select id="ob-proto">
-      <option value="chat_completions">Chat Completions</option>
-      <option value="responses">Responses API</option>
-    </select></label>
-    <label class="fld"><span>Base URL</span><input type="url" id="ob-url" value="${esc(s.baseUrl)}" placeholder="输入 Base URL" /></label>
-    <label class="fld"><span>API Key</span><input type="password" id="ob-key" autocomplete="off" placeholder="输入 API Key" /></label>
-    <label class="fld"><span>模型名 / Endpoint ID</span><input type="text" id="ob-model" value="${esc(s.model)}" placeholder="输入模型名 / Endpoint ID" /></label>
-    <button class="btn btn-pri btn-blk" id="ob-test">测一下并进入</button>
-    <button class="btn btn-ghost btn-blk btn-sm" id="ob-skip" style="margin-top:8px">暂不接入</button>
-    <p class="tiny zh" id="ob-result" style="margin-top:10px"></p>`, () => {
+  let serviceRegion = initialOnboardingRegion(
+    s.apiKey,
+    s.speechApiKey,
+    s.serviceRegion,
+  );
+  openSheet('连接模型与语音', `
+    <p class="sub zh" style="margin-bottom:14px">选择当前网络区域，分别填写模型与语音凭证。两项服务验证成功后才能进入；Key 只写入系统安全存储。</p>
+    <label class="fld"><span>服务区域</span>
+      <div class="seg" id="ob-region">
+        <button type="button" data-region="cn" class="${serviceRegion === 'cn' ? 'on' : ''}">中国大陆</button>
+        <button type="button" data-region="global" class="${serviceRegion === 'global' ? 'on' : ''}">海外</button>
+      </div>
+    </label>
+    <label class="fld"><span>模型 API Key</span><input type="password" id="ob-key" autocomplete="off" autocapitalize="none" spellcheck="false" placeholder="${s.apiKey ? '已安全保存；留空表示不修改' : '输入模型 API Key'}" /></label>
+    <label class="fld"><span>语音 API Key</span><input type="password" id="ob-speech-key" autocomplete="off" autocapitalize="none" spellcheck="false" placeholder="${s.speechApiKey ? '已安全保存；留空表示不修改' : '输入语音 API Key'}" /></label>
+    <button class="btn btn-pri btn-blk" id="ob-test">全部测试并进入</button>
+    <p class="tiny zh" id="ob-result" aria-live="polite" style="margin-top:10px">模型与语音通常使用不同的 Key；语音 Key 同时用于 ASR 和 TTS。</p>`, () => {
+    $$('#ob-region [data-region]').forEach(button => button.addEventListener('click', () => {
+      serviceRegion = button.dataset.region;
+      $$('#ob-region [data-region]').forEach(item => item.classList.toggle(
+        'on',
+        item.dataset.region === serviceRegion,
+      ));
+    }));
     $('#ob-test').addEventListener('click', async () => {
+      const llmApiKey = $('#ob-key').value.trim() || s.apiKey;
+      const speechApiKey = $('#ob-speech-key').value.trim() || s.speechApiKey;
+      if (!serviceRegion) {
+        toast('请选择服务区域');
+        return;
+      }
+      const profile = getServiceProfile(serviceRegion);
       const config = {
-        protocol: $('#ob-proto').value,
-        baseUrl: $('#ob-url').value.trim(),
-        apiKey: $('#ob-key').value.trim(),
-        model: $('#ob-model').value.trim(),
+        providerMode: 'profile',
+        serviceRegion,
+        protocol: profile.llm.protocol,
+        baseUrl: profile.llm.baseUrl,
+        apiKey: llmApiKey,
+        model: profile.llm.defaultModel,
       };
-      if (!config.baseUrl || !config.apiKey || !config.model) {
-        toast('接入点、Key、模型都要填');
+      if (!hasRequiredCredentials(llmApiKey, speechApiKey)) {
+        toast('请填写模型和语音两个 API Key');
         return;
       }
       const button = $('#ob-test');
       const result = $('#ob-result');
       button.disabled = true;
-      button.textContent = '正在连接…';
+      button.textContent = '正在验证模型…';
+      let phase = 'model';
       try {
         const probe = await L.testProvider(config);
+        phase = 'speech';
+        result.textContent = '文本模型已连接，正在验证 ASR 和 TTS…';
+        result.style.color = 'var(--fg-2)';
+        button.textContent = '正在验证语音…';
+        await SP.testCloudSpeech(profile, speechApiKey);
+
         S.state.settings.supportsJsonMode = probe.supportsJsonMode;
-        S.state.settings.onboarded = true;
         await S.setProviderConfig(config);
-        closeSheet();
-        toast('模型已接入');
+        await S.setSpeechConfig({
+          serviceRegion,
+          voiceMode: 'cloud',
+          apiKey: speechApiKey,
+          ttsVoice: profile.speech.defaultVoice,
+        });
+        S.state.settings.onboardingValidationVersion = 1;
+        S.state.settings.onboarded = true;
+        await S.save();
+        closeSheet(true);
+        toast('模型与语音均已接入');
         onReady?.();
       } catch (error) {
-        result.textContent = L.userMessage(error);
+        result.textContent = phase === 'model'
+          ? L.userMessage(error)
+          : `语音服务验证失败：${error instanceof Error ? error.message : String(error)}`;
         result.style.color = 'var(--rose)';
       } finally {
         button.disabled = false;
-        button.textContent = '测一下并进入';
+        button.textContent = '全部测试并进入';
       }
     });
-    $('#ob-skip').addEventListener('click', async () => {
-      S.state.settings.onboarded = true;
-      await S.save();
-      closeSheet();
-      onReady?.();
-    });
-  });
+  }, { dismissible: false });
 }
 
 /* ---------------------------------------------------------------- 设置 */
 export function settingsSheet(onChange) {
   const s = S.state.settings;
   const usage = S.llmUsage();
+  const region = s.serviceRegion || 'cn';
+  const profile = getServiceProfile(region);
+  const profileLabel = profile.label;
   openSheet('设置', `
     <div class="card ${S.isLive() ? 'acc' : 'warm'}" style="margin-bottom:16px">
       <p class="zh" style="font-weight:600">${S.isLive() ? '模型已接入' : '尚未接入模型'}</p>
       <p class="tiny zh" style="margin-top:5px">${S.isLive()
-        ? `请求直接从本机发往接入点。数据保存在 ${S.storageBackend() === 'sqlite' ? 'SQLite' : 'IndexedDB'}，API Key 单独存放。`
-        : '闪存可离线保存；分析、压缩和判卷需要先填写并验证模型配置。'}</p>
+        ? `${profileLabel}配置已启用。数据保存在 ${S.storageBackend() === 'sqlite' ? 'SQLite' : 'IndexedDB'}，API Key 单独存放。`
+        : '闪存可离线保存；分析、压缩和判卷需要先验证模型凭证。'}</p>
     </div>
 
-    <label class="fld"><span>协议</span><select id="s-proto">
-      <option value="chat_completions" ${s.protocol === 'chat_completions' ? 'selected' : ''}>Chat Completions</option>
-      <option value="responses" ${s.protocol === 'responses' ? 'selected' : ''}>Responses API</option>
-      <option value="anthropic_messages" ${s.protocol === 'anthropic_messages' ? 'selected' : ''}>Anthropic Messages</option>
-    </select></label>
-    <label class="fld"><span>Base URL</span><input type="url" id="s-url" value="${esc(s.baseUrl)}" placeholder="按服务文档输入 Base URL" /></label>
-    <label class="fld"><span>API Key</span><input type="password" id="s-key" value="" autocomplete="off" placeholder="${s.apiKey ? '已安全保存；留空表示不修改' : '输入 API Key'}" /></label>
-    <label class="fld"><span>模型名 / Endpoint ID</span><input type="text" id="s-mdl" value="${esc(s.model)}" placeholder="输入模型名 / Endpoint ID" /></label>
+    <label class="fld"><span>服务区域</span>
+      <div class="seg" id="s-region">
+        <button type="button" data-region="cn" class="${region === 'cn' ? 'on' : ''}">中国大陆</button>
+        <button type="button" data-region="global" class="${region === 'global' ? 'on' : ''}">海外</button>
+      </div>
+    </label>
+    <label class="fld"><span>模型 API Key</span><input type="password" id="s-key" value="" autocomplete="off" placeholder="${s.apiKey ? '已安全保存；留空表示不修改' : '输入 API Key'}" /></label>
+    <details class="advanced" ${s.providerMode === 'custom' ? 'open' : ''}>
+      <summary>高级模型配置</summary>
+      <label class="toggle-row"><span><b>覆盖区域默认值</b><small>只用于自定义兼容接入点</small></span>
+        <input type="checkbox" id="s-custom" ${s.providerMode === 'custom' ? 'checked' : ''} /></label>
+      <label class="fld"><span>协议</span><select id="s-proto">
+        <option value="chat_completions" ${s.protocol === 'chat_completions' ? 'selected' : ''}>Chat Completions</option>
+        <option value="responses" ${s.protocol === 'responses' ? 'selected' : ''}>Responses API</option>
+        <option value="anthropic_messages" ${s.protocol === 'anthropic_messages' ? 'selected' : ''}>Anthropic Messages</option>
+      </select></label>
+      <label class="fld"><span>Base URL</span><input type="url" id="s-url" value="${esc(s.baseUrl)}" placeholder="输入自定义 Base URL" /></label>
+      <label class="fld"><span>模型名 / Endpoint ID</span><input type="text" id="s-mdl" value="${esc(s.model)}" placeholder="输入自定义模型标识" /></label>
+    </details>
     <div class="row"><button class="btn btn-pri grow" id="s-test">测一下并保存</button><button class="btn btn-ghost" id="s-save">仅保存</button></div>
     <p class="tiny zh" id="s-test-result" style="margin-top:10px">Key 在 Android 上写入 Keystore 加密存储，不进 SQLite、日志或导出文件。</p>
+
+    <div class="sec" style="margin-top:20px"><span class="eyebrow">语音</span><hr/></div>
+    <label class="fld" style="margin-top:10px"><span>语音模式</span>
+      <div class="seg" id="s-voice-mode">
+        <button type="button" data-mode="system" class="${s.voiceMode !== 'cloud' ? 'on' : ''}">系统语音</button>
+        <button type="button" data-mode="cloud" class="${s.voiceMode === 'cloud' ? 'on' : ''}">云端增强</button>
+      </div>
+    </label>
+    <div id="s-cloud-fields" ${s.voiceMode === 'cloud' ? '' : 'hidden'}>
+      <label class="fld"><span>语音 API Key</span><input type="password" id="s-speech-key" value="" autocomplete="off" placeholder="${s.speechApiKey ? '已安全保存；留空表示不修改' : '输入语音服务 API Key'}" /></label>
+      <button class="btn btn-sm btn-ghost btn-blk" id="s-test-speech">试听云端语音</button>
+      <p class="tiny zh" id="s-speech-result" style="margin-top:8px">录音仅在识别时发送，不写入数据库或备份。</p>
+    </div>
 
     <div class="sec" style="margin-top:20px"><span class="eyebrow">调用护栏</span><hr/></div>
     <div class="kv"><b>今天</b><span>${usage.todayCalls} / ${Number(s.dailyLimit || 60)} 次</span></div>
@@ -391,12 +455,38 @@ export function settingsSheet(onChange) {
     <input type="file" id="s-file" accept=".json" style="display:none" />
 
     <div class="sec" style="margin-top:20px"><span class="eyebrow">关于</span><hr/></div>
-    <p class="tiny zh" style="margin-top:9px">模型请求直接从本机发往你配置的接入点，不经过说得出的服务器；学习数据只保存在本机。</p>`, () => {
-    const readConfig = () => ({
-      baseUrl: $('#s-url').value.trim(),
-      apiKey: $('#s-key').value.trim() || s.apiKey,
-      model: $('#s-mdl').value.trim(),
-      protocol: $('#s-proto').value,
+    <p class="tiny zh" style="margin-top:9px">MVP 请求从本机直达当前区域服务，不经过说得出的服务器；学习数据只保存在本机。</p>`, () => {
+    let voiceMode = s.voiceMode === 'cloud' ? 'cloud' : 'system';
+    $$('#s-region [data-region]').forEach(button => button.addEventListener('click', async () => {
+      if (button.dataset.region === S.state.settings.serviceRegion) return;
+      await S.setServiceRegion(button.dataset.region);
+      settingsSheet(onChange);
+      onChange?.();
+    }));
+    $$('#s-voice-mode [data-mode]').forEach(button => button.addEventListener('click', () => {
+      voiceMode = button.dataset.mode;
+      $$('#s-voice-mode [data-mode]').forEach(item => item.classList.toggle(
+        'on',
+        item.dataset.mode === voiceMode,
+      ));
+      $('#s-cloud-fields').hidden = voiceMode !== 'cloud';
+    }));
+    const readConfig = () => {
+      const custom = $('#s-custom').checked;
+      return {
+        providerMode: custom ? 'custom' : 'profile',
+        serviceRegion: region,
+        baseUrl: custom ? $('#s-url').value.trim() : profile.llm.baseUrl,
+        apiKey: $('#s-key').value.trim() || s.apiKey,
+        model: custom ? $('#s-mdl').value.trim() : profile.llm.defaultModel,
+        protocol: custom ? $('#s-proto').value : profile.llm.protocol,
+      };
+    };
+    const readSpeechConfig = () => ({
+      serviceRegion: region,
+      voiceMode,
+      apiKey: $('#s-speech-key').value.trim() || s.speechApiKey,
+      ttsVoice: s.ttsVoice || profile.speech.defaultVoice,
     });
     const persistForm = async () => {
       const wasEnabled = !!S.state.settings.notificationsEnabled;
@@ -416,6 +506,7 @@ export function settingsSheet(onChange) {
         S.state.settings.notificationsEnabledAt = 0;
       }
       await S.setProviderConfig(readConfig());
+      await S.setSpeechConfig(readSpeechConfig());
       await rescheduleNotifications();
       onChange?.();
     };
@@ -426,7 +517,11 @@ export function settingsSheet(onChange) {
     });
     $('#s-test').addEventListener('click', async () => {
       const config = readConfig();
-      if (!config.baseUrl || !config.apiKey || !config.model) { toast('接入点、Key、模型都要填'); return; }
+      if (!config.apiKey) { toast('请填写模型 API Key'); return; }
+      if (config.providerMode === 'custom' && (!config.baseUrl || !config.model)) {
+        toast('自定义接入点和模型标识都要填');
+        return;
+      }
       const button = $('#s-test');
       const result = $('#s-test-result');
       button.disabled = true;
@@ -444,6 +539,29 @@ export function settingsSheet(onChange) {
       } finally {
         button.disabled = false;
         button.textContent = '测一下并保存';
+      }
+    });
+    $('#s-test-speech').addEventListener('click', async () => {
+      const config = readSpeechConfig();
+      if (!config.apiKey) {
+        toast('请填写语音 API Key');
+        return;
+      }
+      const button = $('#s-test-speech');
+      const result = $('#s-speech-result');
+      button.disabled = true;
+      button.textContent = '正在生成…';
+      try {
+        await SP.testCloudSpeech(profile, config.apiKey);
+        await S.setSpeechConfig({ ...config, voiceMode: 'cloud' });
+        result.textContent = 'ASR 鉴权与云端朗读连接成功';
+        result.style.color = 'var(--acc)';
+      } catch (error) {
+        result.textContent = error instanceof Error ? error.message : String(error);
+        result.style.color = 'var(--rose)';
+      } finally {
+        button.disabled = false;
+        button.textContent = '试听云端语音';
       }
     });
     $('#s-exact').addEventListener('click', async () => {
@@ -481,7 +599,16 @@ export function settingsSheet(onChange) {
     $('#s-file').addEventListener('change', e => {
       const f = e.target.files[0]; if (!f) return;
       const r = new FileReader();
-      r.onload = () => { try { S.importJSON(r.result); closeSheet(); toast('导入成功'); go('home'); } catch (err) { toast('导入失败：' + err.message); } };
+      r.onload = async () => {
+        try {
+          await S.importJSON(r.result);
+          closeSheet();
+          toast('导入成功');
+          go('home');
+        } catch (err) {
+          toast('导入失败：' + err.message);
+        }
+      };
       r.readAsText(f);
     });
     $('#s-reset').addEventListener('click', async () => {

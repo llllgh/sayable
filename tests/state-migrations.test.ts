@@ -47,10 +47,19 @@ describe('persisted state migration', () => {
       notificationReplies: [],
     })).toEqual({
       formatVersion: CURRENT_STATE_FORMAT_VERSION,
+      profile: undefined,
       items: [],
       inbox: [],
       compressions: [],
       notificationReplies: [],
+      settings: {
+        providerMode: 'profile',
+        serviceRegion: 'cn',
+        voiceMode: 'system',
+        baseUrl: '',
+        model: '',
+        protocol: 'chat_completions',
+      },
     });
   });
 
@@ -103,6 +112,10 @@ describe('persisted state migration', () => {
     expect(migrated.settings).toEqual({
       baseUrl: 'https://provider.example/v1',
       model: 'my-model',
+      protocol: 'chat_completions',
+      providerMode: 'custom',
+      serviceRegion: 'cn',
+      voiceMode: 'system',
     });
     expect(migrated.draft).toBe('unfinished user text');
     expect(migrated.log).toEqual([{ type: 'flash' }]);
@@ -117,5 +130,46 @@ describe('persisted state migration', () => {
     }) as Record<string, unknown>;
 
     expect(migrated.profile).toEqual(profile);
+  });
+
+  it('adds voice defaults without replacing an existing provider', () => {
+    const migrated = migratePersistedState({
+      formatVersion: 3,
+      settings: {
+        baseUrl: 'https://custom.example/v1',
+        model: 'custom-model',
+        protocol: 'responses',
+      },
+    }) as Record<string, any>;
+
+    expect(migrated.formatVersion).toBe(CURRENT_STATE_FORMAT_VERSION);
+    expect(migrated.settings).toMatchObject({
+      providerMode: 'custom',
+      serviceRegion: 'cn',
+      voiceMode: 'system',
+      baseUrl: 'https://custom.example/v1',
+      model: 'custom-model',
+      protocol: 'responses',
+    });
+  });
+
+  it('keeps profile-managed connection fields out of user settings', () => {
+    const migrated = migratePersistedState({
+      formatVersion: 3,
+      settings: {
+        providerMode: 'profile',
+        serviceRegion: 'global',
+        baseUrl: 'https://stale.example/v1',
+        model: 'stale-model',
+      },
+    }) as Record<string, any>;
+
+    expect(migrated.settings).toMatchObject({
+      providerMode: 'profile',
+      serviceRegion: 'global',
+      baseUrl: '',
+      model: '',
+      protocol: 'responses',
+    });
   });
 });

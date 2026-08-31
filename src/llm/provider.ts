@@ -76,6 +76,7 @@ function requestBody(
         .filter((message) => message.role !== 'system')
         .map((message) => ({ role: message.role, content: message.content })),
       max_output_tokens: maxTokens,
+      reasoning: { effort: 'minimal' },
     };
     if (system) body.instructions = system;
     if (options.jsonMode) {

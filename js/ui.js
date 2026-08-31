@@ -9,25 +9,37 @@ export const $ = (sel, root = document) => root.querySelector(sel);
 export const $$ = (sel, root = document) => [...root.querySelectorAll(sel)];
 
 let toastTimer;
+let sheetReturnFocus = null;
 export function toast(msg) {
   const t = $('#toast'); if (!t) return;
   t.textContent = msg; t.classList.add('on');
   clearTimeout(toastTimer); toastTimer = setTimeout(() => t.classList.remove('on'), 2300);
 }
 
-export function openSheet(title, bodyHTML, onMount) {
+export function openSheet(title, bodyHTML, onMount, { dismissible = true } = {}) {
   const s = $('#sheet');
+  sheetReturnFocus = document.activeElement instanceof HTMLElement
+    ? document.activeElement
+    : null;
   $('#sheet-title').textContent = title;
   $('#sheet-body').innerHTML = bodyHTML;
+  s.dataset.dismissible = String(dismissible);
+  $$('[data-close]', s).forEach(element => { element.hidden = !dismissible; });
+  s.removeAttribute('inert');
   s.setAttribute('aria-hidden', 'false');
   document.body.style.overflow = 'hidden';
   onMount?.($('#sheet-body'));
 }
-export function closeSheet() {
+export function closeSheet(force = false) {
   const sheet = $('#sheet');
   const wasOpen = sheet.getAttribute('aria-hidden') === 'false';
+  if (wasOpen && sheet.dataset.dismissible === 'false' && !force) return false;
+  if (sheet.contains(document.activeElement)) document.activeElement?.blur?.();
+  sheet.setAttribute('inert', '');
   sheet.setAttribute('aria-hidden', 'true');
   document.body.style.overflow = '';
+  sheetReturnFocus?.focus({ preventScroll: true });
+  sheetReturnFocus = null;
   return wasOpen;
 }
 

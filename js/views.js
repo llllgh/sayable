@@ -22,6 +22,27 @@ export function cueFor(it) {
   };
 }
 
+function speechFeedbackHTML(assessment) {
+  if (!assessment) return '';
+  const metrics = [
+    ['可懂度', assessment.intelligibility],
+    ['完整度', assessment.completeness],
+    ['流利度', assessment.fluency],
+    ['节奏', assessment.rhythm],
+  ];
+  return `<div class="voice-feedback">
+    <div class="row" style="justify-content:space-between">
+      <span class="eyebrow">语音反馈</span>
+      <b class="voice-score">${assessment.overall}</b>
+    </div>
+    <div class="voice-metrics">${metrics.map(([label, score]) => `
+      <div><span>${label}</span><b>${score}</b></div>`).join('')}</div>
+    <p class="tiny zh">${esc(assessment.issues.join('；'))}${
+      assessment.wordsPerMinute ? ` · ${assessment.wordsPerMinute} 词/分钟` : ''
+    }</p>
+  </div>`;
+}
+
 /* ---------------------------------------------------------------- 召回卡（核心组件） */
 /* 设计要点：
    1) 答案先出（answer-first）：默认不给骨架，"看答案"按钮前 8 秒不可点 —— 
@@ -60,6 +81,7 @@ export function drillCard(it, cue, opts = {}) {
     const root = $('#' + id); if (!root) return;
     const ta = $('#' + id + '-a'), out = $('#' + id + '-out');
     let left = 20, stopMic = null, recording = false, done = false;
+    let speechAssessment = null;
 
     /* 倒计时：不打断，只施加压力 */
     const tick = setInterval(() => {
@@ -88,7 +110,9 @@ export function drillCard(it, cue, opts = {}) {
       recording = true; btn.classList.add('rec');
       stopMic = SP.listen({
         lang: 'en-US',
+        referenceText: it.skeleton,
         onText: t => { ta.value = t; },
+        onAssessment: assessment => { speechAssessment = assessment; },
         onEnd: () => { recording = false; btn.classList.remove('rec'); },
         onError: e => { recording = false; btn.classList.remove('rec'); toast(e.message); },
       });
@@ -146,6 +170,7 @@ export function drillCard(it, cue, opts = {}) {
         ${r.fix ? `<div class="compare" style="margin-top:11px"><div class="after"><div class="wc" style="color:var(--acc)">改成</div><p class="en">${esc(r.fix)}</p></div></div>` : ''}
         ${r.tighter ? `<div class="compare" style="margin-top:8px"><div class="after"><div class="wc" style="color:var(--acc)">还能更紧</div><p class="en">${esc(r.tighter)}</p></div></div>` : ''}
         ${r.note ? `<p class="dim zh" style="margin-top:10px">${esc(r.note)}</p>` : ''}
+        ${speechFeedbackHTML(speechAssessment)}
         <p class="skel en" style="margin-top:12px">${skel(it.skeleton)} <button class="link" id="${id}-play" style="margin-left:6px">🔊 听</button></p>
         <div class="row wrap" style="margin-top:13px">
           <button class="btn btn-sm ${ok ? 'btn-pri' : 'btn-warm'} grow" id="${id}-next">${ok ? `记下了 · ${inWords(nxt.dueAt)}再问` : '8 小时后再来一次'}</button>
