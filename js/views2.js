@@ -20,11 +20,33 @@ import {
   hasRequiredCredentials,
   initialOnboardingRegion,
 } from '../src/speech/profiles.ts';
+import {
+  createCompressionRecord,
+  normalizeCompressionRecord,
+} from '../src/core/compressions.ts';
 
 /* ---------------------------------------------------------------- 压缩台 */
+const compressionPatternKey = (value) => String(value || '')
+  .trim()
+  .replace(/\s+/g, ' ')
+  .toLowerCase();
+
+function compressionItemFor(pattern) {
+  const key = compressionPatternKey(pattern?.skeleton);
+  return S.state.items.find(item => compressionPatternKey(item.skeleton) === key);
+}
+
 export function viewCompress(app) {
-  const hist = S.state.compressions.slice(0, 5);
-  const avg = hist.length ? Math.round(hist.reduce((s, c) => s + (1 - c.shortWords / c.longWords), 0) / hist.length * 100) : 0;
+  const history = S.state.compressions
+    .map(normalizeCompressionRecord)
+    .filter(Boolean);
+  const recent = history.slice(0, 5).filter(record => record.longWords > 0);
+  const avg = recent.length
+    ? Math.round(recent.reduce(
+      (sum, record) => sum + (1 - record.shortWords / record.longWords),
+      0,
+    ) / recent.length * 100)
+    : 0;
 
   app.innerHTML = `<div class="view stack">
     <div>
@@ -32,9 +54,9 @@ export function viewCompress(app) {
       <p class="sub zh" style="margin-top:6px">说完一段 30 秒的话，这里保留你的逻辑、压成 15 秒，并告诉你「删掉的那部分为什么英语里可以不说」。</p>
     </div>
 
-    ${hist.length ? `<div class="metrics">
+    ${history.length ? `<div class="metrics">
       <div class="metric acc"><div class="n">${avg}<small>%</small></div><div class="k">最近平均压缩率</div></div>
-      <div class="metric violet"><div class="n">${hist.length}</div><div class="k">压缩过的段落</div></div>
+      <div class="metric violet"><div class="n">${history.length}</div><div class="k">压缩过的段落</div></div>
     </div>` : ''}
 
     <div class="card">
@@ -50,14 +72,131 @@ export function viewCompress(app) {
     </div>
     <div id="cp-out"></div>
 
-    ${hist.length ? `<div class="sec"><span class="eyebrow">历史</span><hr/></div>
-    <div class="card flat" style="padding:6px 15px">${hist.map(c => `<div class="li">
-      <div class="grow"><p class="en" style="font-size:13.5px">${esc(c.short)}</p>
-      <p class="tiny"><span style="color:var(--acc)">↓ ${Math.round((1 - c.shortWords / c.longWords) * 100)}%</span> · ${c.longWords} → ${c.shortWords} 词 · ${ago(c.at)}</p></div></div>`).join('')}</div>` : ''}
+    ${history.length ? `<div class="sec"><span class="eyebrow">历史</span><hr/></div>
+    <div class="card flat history-list" style="padding:6px 15px">${history.map(record => {
+      const rate = record.longWords
+        ? Math.max(0, Math.round((1 - record.shortWords / record.longWords) * 100))
+        : 0;
+      const collected = record.patterns.filter(compressionItemFor).length;
+      return `<button type="button" class="li history-row" data-compression="${esc(record.id)}" aria-label="打开压缩记录">
+        <span class="grow"><span class="en" style="display:block;font-size:13.5px">${esc(record.short)}</span>
+        <span class="tiny" style="display:block"><span style="color:var(--acc)">↓ ${rate}%</span> · ${record.longWords} → ${record.shortWords} 词 · ${record.at ? ago(record.at) : '较早'}
+          ${record.patterns.length ? ` · ${record.patterns.length} 套骨架` : ''}${collected ? ` · 已收编 ${collected}` : ''}</span></span>
+        <span class="history-arrow" aria-hidden="true">›</span>
+      </button>`;
+    }).join('')}</div>` : ''}
   </div>`;
 
-  const ta = $('#cp'); let rec = false;
+  const ta = $('#cp');
+  const out = $('#cp-out');
+  let rec = false;
   const wc = () => { $('#cp-wc').textContent = words(ta.value) + ' 词'; };
+  const reuseInput = (value) => {
+    ta.value = value;
+    wc();
+    ta.focus({ preventScroll: true });
+    ta.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    toast('内容已放回输入框');
+  };
+
+  const renderCompression = (record, { historical = false } = {}) => {
+    const lw = record.longWords || words(record.long);
+    const sw = record.shortWords || words(record.short);
+    const rate = lw
+      ? Math.max(0, Math.min(100, Math.round((1 - sw / lw) * 100)))
+      : 0;
+    const patternCards = record.patterns.length
+      ? record.patterns.map((pattern, index) => {
+        const existing = compressionItemFor(pattern);
+        const label = existing
+          ? (existing.status === 'retired' ? '已淘汰 · 可在句库恢复' : '已在句库')
+          : (S.budgetLeft() ? '收编并立刻造句' : '本周名额已满（去句库淘汰一个）');
+        return `<div class="card acc">
+          <p class="skel en">${skel(pattern.skeleton)}</p>
+          ${pattern.zh ? `<p class="zh sub" style="margin-top:4px">${esc(pattern.zh)}</p>` : ''}
+          ${pattern.why ? `<p class="zh" style="margin-top:8px;font-size:13.5px">${esc(pattern.why)}</p>` : ''}
+          ${pattern.seeds.length ? `<ul class="bul en" style="margin-top:8px">${pattern.seeds.map(seed => `<li>${esc(seed)}</li>`).join('')}</ul>` : ''}
+          <button class="btn btn-sm ${existing ? 'btn-ghost' : 'btn-pri'}" style="margin-top:11px" data-add="${index}" ${existing ? 'disabled' : ''}>${label}</button>
+        </div>`;
+      }).join('')
+      : '<p class="dim zh">这条旧记录没有保存可收编的骨架。</p>';
+
+    out.innerHTML = `<div class="stack">
+      ${historical ? `<div class="sec"><span class="eyebrow" style="color:var(--violet)">历史记录 · ${record.at ? ago(record.at) : '较早'}</span><hr/></div>` : ''}
+      <div class="card flat">
+        <div class="eyebrow">原始表达</div>
+        <p class="en" style="margin-top:7px;font-size:14px;line-height:1.55">${esc(record.long)}</p>
+        <div class="row wrap" style="margin-top:12px">
+          <button class="btn btn-sm btn-ghost" data-reuse="long">编辑原文</button>
+          <button class="btn btn-sm btn-ghost" data-reuse="short">从 15 秒版继续</button>
+        </div>
+      </div>
+      <div class="card acc">
+        <div class="row" style="justify-content:space-between"><span class="eyebrow" style="color:var(--acc)">15 秒版</span>
+          <span class="chip acc">↓ ${rate}% · ${lw} → ${sw} 词</span></div>
+        <p class="en" style="font-size:16.5px;margin-top:9px;line-height:1.5">${esc(record.short)} <button class="link" id="cp-say" aria-label="朗读 15 秒版">🔊</button></p>
+        <div class="bar" style="margin-top:12px"><i style="width:${rate}%"></i></div>
+        ${record.kept ? `<p class="tiny zh" style="margin-top:9px">✓ ${esc(record.kept)}</p>` : ''}
+      </div>
+
+      ${record.symptom ? `<div class="card rose"><div class="eyebrow" style="color:var(--rose)">这段话里最主要的啰嗦习惯</div>
+        <p class="zh" style="margin-top:7px;font-weight:600">${esc(record.symptom)}</p></div>` : ''}
+
+      ${record.cuts.length ? `<div class="card">
+        <div class="eyebrow">删掉了什么，为什么可以不说</div>
+        ${record.cuts.map((cut, index) => `<div class="li"><div class="idx">${index + 1}</div><div class="grow">
+          <p class="zh" style="font-size:14px;font-weight:600">${esc(cut.what)}</p>
+          <p class="tiny zh" style="margin-top:2px">${esc(cut.why)}</p></div></div>`).join('')}
+      </div>` : ''}
+
+      <div class="sec" id="cp-patterns"><span class="eyebrow" style="color:var(--acc)">值得长期拥有的骨架</span><hr/></div>
+      ${patternCards}
+      <div id="cp-drill"></div>
+    </div>`;
+
+    $('#cp-say')?.addEventListener('click', () => SP.say(record.short));
+    $$('[data-reuse]', out).forEach(button => button.addEventListener('click', () => {
+      reuseInput(button.dataset.reuse === 'short' ? record.short : record.long);
+    }));
+    $$('[data-add]', out).forEach(button => button.addEventListener('click', () => {
+      const pattern = record.patterns[Number(button.dataset.add)];
+      const existing = compressionItemFor(pattern);
+      if (existing) {
+        button.disabled = true;
+        button.textContent = existing.status === 'retired'
+          ? '已淘汰 · 可在句库恢复'
+          : '已在句库';
+        return;
+      }
+      if (!S.budgetLeft()) {
+        go('library');
+        return;
+      }
+      const item = S.addItem({
+        skeleton: pattern.skeleton,
+        zh: pattern.zh,
+        why: pattern.why,
+        seeds: pattern.seeds,
+        srcKind: 'compress',
+        raw: record.long,
+      });
+      button.disabled = true;
+      button.classList.remove('btn-pri');
+      button.classList.add('btn-ghost');
+      button.textContent = '已收编';
+      const drill = drillCard(item, cueFor(item), {
+        label: '立刻造句',
+        onGraded: () => {
+          toast('已收编 · 其它推荐仍保留在这里');
+          $('#cp-patterns')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        },
+      });
+      $('#cp-drill').innerHTML = drill.html;
+      drill.mount();
+      $('#cp-drill').scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }));
+  };
+
   ta.addEventListener('input', wc);
   $('#cp-mic').addEventListener('click', () => {
     const b = $('#cp-mic');
@@ -75,55 +214,31 @@ export function viewCompress(app) {
   $('#cp-go').addEventListener('click', async () => {
     const text = ta.value.trim();
     if (words(text) < 12) { toast('至少说一段（12 词以上）才有压缩空间'); return; }
-    const out = $('#cp-out');
     out.innerHTML = thinking('正在保留你的逻辑并压缩');
     try {
-      const r = await L.compress(text);
-      const lw = words(text), sw = words(r.short);
-      const rate = Math.max(0, Math.round((1 - sw / lw) * 100));
-      out.innerHTML = `<div class="stack">
-        <div class="card acc">
-          <div class="row" style="justify-content:space-between"><span class="eyebrow" style="color:var(--acc)">15 秒版</span>
-            <span class="chip acc">↓ ${rate}% · ${lw} → ${sw} 词</span></div>
-          <p class="en" style="font-size:16.5px;margin-top:9px;line-height:1.5">${esc(r.short)} <button class="link" id="cp-say">🔊</button></p>
-          <div class="bar" style="margin-top:12px"><i style="width:${rate}%"></i></div>
-          ${r.kept ? `<p class="tiny zh" style="margin-top:9px">✓ ${esc(r.kept)}</p>` : ''}
-        </div>
-
-        ${r.symptom ? `<div class="card rose"><div class="eyebrow" style="color:var(--rose)">这段话里最主要的啰嗦习惯</div>
-          <p class="zh" style="margin-top:7px;font-weight:600">${esc(r.symptom)}</p></div>` : ''}
-
-        ${(r.cuts || []).length ? `<div class="card">
-          <div class="eyebrow">删掉了什么，为什么可以不说</div>
-          ${(r.cuts || []).map((c, k) => `<div class="li"><div class="idx">${k + 1}</div><div class="grow">
-            <p class="zh" style="font-size:14px;font-weight:600">${esc(c.what)}</p>
-            <p class="tiny zh" style="margin-top:2px">${esc(c.why)}</p></div></div>`).join('')}
-        </div>` : ''}
-
-        <div class="sec"><span class="eyebrow" style="color:var(--acc)">值得长期拥有的骨架</span><hr/></div>
-        ${(r.patterns || []).map((p, k) => `<div class="card acc">
-          <p class="skel en">${skel(p.skeleton)}</p>
-          <p class="zh sub" style="margin-top:4px">${esc(p.zh || '')}</p>
-          <p class="zh" style="margin-top:8px;font-size:13.5px">${esc(p.why || '')}</p>
-          <button class="btn btn-sm btn-pri" style="margin-top:11px" data-add="${k}">${S.budgetLeft() ? '收编并立刻造句' : '本周名额已满（去句库淘汰一个）'}</button>
-        </div>`).join('')}
-        <div id="cp-drill"></div>
-      </div>`;
-      S.state.compressions.unshift({ id: S.uid(), at: Date.now(), long: text, short: r.short, longWords: lw, shortWords: sw, patterns: (r.patterns || []).map(p => p.skeleton) });
-      S.save();
-      $('#cp-say')?.addEventListener('click', () => SP.say(r.short));
-      $$('[data-add]', out).forEach(b => b.addEventListener('click', () => {
-        if (!S.budgetLeft()) { go('library'); return; }
-        const p = r.patterns[+b.dataset.add];
-        const it = S.addItem({ skeleton: p.skeleton, zh: p.zh, why: p.why, seeds: p.seeds || [], srcKind: 'compress', raw: text });
-        const d = drillCard(it, cueFor(it), { label: '立刻造句', onGraded: () => go('home') });
-        $('#cp-drill').innerHTML = d.html; d.mount();
-        $('#cp-drill').scrollIntoView({ behavior: 'smooth', block: 'center' });
-      }));
+      const result = await L.compress(text);
+      const record = createCompressionRecord({
+        id: S.uid(),
+        at: Date.now(),
+        long: text,
+        longWords: words(text),
+        shortWords: words(result.short),
+        result,
+      });
+      S.state.compressions.unshift(record);
+      await S.save();
+      renderCompression(record);
     } catch (e) {
       out.innerHTML = `<div class="card rose"><p class="zh sub">${esc(L.userMessage(e))}</p></div>`;
     }
   });
+
+  $$('[data-compression]', app).forEach(button => button.addEventListener('click', () => {
+    const record = history.find(item => item.id === button.dataset.compression);
+    if (!record) return;
+    renderCompression(record, { historical: true });
+    out.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }));
 }
 
 /* ---------------------------------------------------------------- 会前热身 */
