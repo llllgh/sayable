@@ -17,15 +17,9 @@ adb install -r android/app/build/outputs/apk/release/app-release.apk
 也可以把 APK 发送到手机后直接打开。Android 可能要求允许当前文件管理器“安装未知应用”。
 如果此前安装过 Debug APK，需要先卸载；Debug 与 Release 的签名不同，不能互相覆盖。
 
-首次打开时，Base URL 和 Endpoint ID 会从构建机的 `.env` 预填。API Key **不会打进 APK**，需要在首启页粘贴一次并点击“测一下并进入”。
+首次打开时，Base URL、API Key 和模型标识均为空，应用不会从构建环境预填或内置任何接入点信息。按所用模型服务的文档填写配置并点击“测一下并进入”；也可以暂不接入，仅使用离线闪存。
 
-火山方舟推荐配置：
-
-```text
-协议：Chat Completions
-Base URL：https://ark.cn-beijing.volces.com/api/v3
-模型名：方舟 Endpoint ID（ep-...）
-```
+应用支持 Chat Completions、Responses API 和 Anthropic Messages 兼容接口。模型标识可以是模型名或服务商分配的 Endpoint ID。
 
 ## Android 权限
 

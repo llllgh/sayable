@@ -58,7 +58,7 @@
 ## T2｜只配一个接入点就能跑（LLM 接入层）
 
 - [ ] **T2.1** **Provider 抽象**：`{ label, protocol, baseUrl, apiKey, model, timeoutMs, maxRetry }`，`protocol ∈ chat_completions | anthropic_messages | responses`。业务只调 `llm.capture() / llm.judge() / llm.compress() / llm.preflight()`，不知道协议差异。
-- [ ] **T2.2** **首启引导只有一屏**：三个输入框 + 「测一下」。测通才允许进主界面（也允许「先用演示模式」）。
+- [ ] **T2.2** **首启引导只有一屏**：三个空输入框 + 「测一下」，不内置任何服务商或接入点信息；允许暂不接入并使用离线闪存。
 - [ ] **T2.3** **能力探测**：测试请求里探测 ① 是否支持 `response_format: json_object` ② 是否支持 `stream` ③ 上下文长度。不支持结构化输出时自动切到「提示词强约束 + 容错解析」路径（去 ```json 围栏、抽第一个平衡花括号、`JSON.parse` 失败再修一次）。
 - [ ] **T2.4** **错误分级**，每一级有明确的用户动作，不许出现「请求失败」这种死胡同：
 

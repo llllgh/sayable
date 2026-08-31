@@ -131,7 +131,7 @@ export function viewPreflight(app) {
     </div>
     <div class="card">
       <label class="fld"><span>30 分钟后你要开什么会 / 见谁 / 讲什么</span>
-        <textarea id="pf" rows="3" placeholder="例：跟海外客户过一遍我们 AI 方案的投入产出，他们担心见不到效果，会追问什么时候能看到回报">${esc(p.upcoming || '')}</textarea></label>
+        <textarea id="pf" rows="3" placeholder="填写会议对象、主题和关注点">${esc(p.upcoming || '')}</textarea></label>
       <button class="btn btn-pri btn-blk" id="pf-go">给我这场会用得上的</button>
       <p class="tiny zh" style="margin-top:10px">会后回来点一下「我真会用过它」—— 那是唯一能让骨架毕业的证据。</p>
     </div>
@@ -267,12 +267,12 @@ const parse = (s) => (s || '').split(/[、,，\n;；]+/).map(x => x.trim()).filt
 export function profileSheet() {
   const p = S.state.profile;
   openSheet('我的画像', `
-    <p class="tiny zh" style="margin-bottom:14px">这几栏会进到每一次分析的提示词里 —— 决定给你的例句是「关于图书馆和天气」还是「关于你下周那个客户会」。这是练习句子能不能贴合实际的唯一开关。</p>
-    <label class="fld"><span>岗位 / 你在做什么</span><input type="text" id="p-role" value="${esc(p.role)}" placeholder="产品负责人 / 后端工程师 / 解决方案架构师" /></label>
-    <label class="fld"><span>常聊的话题（顿号分隔）</span><textarea id="p-dom" rows="2" placeholder="AI 产品落地、模型效果、研发效率、客户 ROI">${esc(CSV(p.domains))}</textarea></label>
-    <label class="fld"><span>主要跟谁说英语</span><input type="text" id="p-cp" value="${esc(CSV(p.counterparts))}" placeholder="海外客户、海外同事、公司高管" /></label>
-    <label class="fld"><span>高频真实场景（造句和出题会轮着用）</span><textarea id="p-sc" rows="3" placeholder="客户方案沟通会、跟 leader 汇报进展、跨时区周会、面向高管的季度复盘">${esc(CSV(p.scenarios))}</textarea></label>
-    <label class="fld"><span>近期要面对的事</span><textarea id="p-up" rows="2" placeholder="下周要跟一个海外客户讲我们 AI 方案的投入产出">${esc(p.upcoming)}</textarea></label>
+    <p class="tiny zh" style="margin-bottom:14px">这些选填信息只用于让分析和练习贴合你的实际场景。</p>
+    <label class="fld"><span>岗位 / 你在做什么</span><input type="text" id="p-role" value="${esc(p.role)}" placeholder="填写岗位或职责（选填）" /></label>
+    <label class="fld"><span>常聊的话题（顿号分隔）</span><textarea id="p-dom" rows="2" placeholder="填写常聊的话题（选填）">${esc(CSV(p.domains))}</textarea></label>
+    <label class="fld"><span>主要跟谁说英语</span><input type="text" id="p-cp" value="${esc(CSV(p.counterparts))}" placeholder="填写沟通对象（选填）" /></label>
+    <label class="fld"><span>高频真实场景（造句和出题会轮着用）</span><textarea id="p-sc" rows="3" placeholder="填写常见沟通场景（选填）">${esc(CSV(p.scenarios))}</textarea></label>
+    <label class="fld"><span>近期要面对的事</span><textarea id="p-up" rows="2" placeholder="填写近期场景（选填）">${esc(p.upcoming)}</textarea></label>
     <button class="btn btn-pri btn-blk" id="p-save">保存</button>`, () => {
     $('#p-save').addEventListener('click', () => {
       Object.assign(S.state.profile, {
@@ -298,7 +298,7 @@ export function onboardingSheet(onReady) {
     <label class="fld"><span>API Key</span><input type="password" id="ob-key" autocomplete="off" placeholder="输入 API Key" /></label>
     <label class="fld"><span>模型名 / Endpoint ID</span><input type="text" id="ob-model" value="${esc(s.model)}" placeholder="输入模型名 / Endpoint ID" /></label>
     <button class="btn btn-pri btn-blk" id="ob-test">测一下并进入</button>
-    <button class="btn btn-ghost btn-blk btn-sm" id="ob-demo" style="margin-top:8px">先用演示模式</button>
+    <button class="btn btn-ghost btn-blk btn-sm" id="ob-skip" style="margin-top:8px">暂不接入</button>
     <p class="tiny zh" id="ob-result" style="margin-top:10px"></p>`, () => {
     $('#ob-test').addEventListener('click', async () => {
       const config = {
@@ -331,7 +331,7 @@ export function onboardingSheet(onReady) {
         button.textContent = '测一下并进入';
       }
     });
-    $('#ob-demo').addEventListener('click', async () => {
+    $('#ob-skip').addEventListener('click', async () => {
       S.state.settings.onboarded = true;
       await S.save();
       closeSheet();
@@ -346,10 +346,10 @@ export function settingsSheet(onChange) {
   const usage = S.llmUsage();
   openSheet('设置', `
     <div class="card ${S.isLive() ? 'acc' : 'warm'}" style="margin-bottom:16px">
-      <p class="zh" style="font-weight:600">${S.isLive() ? '真实模型已接入' : '当前是演示模式'}</p>
+      <p class="zh" style="font-weight:600">${S.isLive() ? '模型已接入' : '尚未接入模型'}</p>
       <p class="tiny zh" style="margin-top:5px">${S.isLive()
         ? `请求直接从本机发往接入点。数据保存在 ${S.storageBackend() === 'sqlite' ? 'SQLite' : 'IndexedDB'}，API Key 单独存放。`
-        : '演示模式下分析结果是预置样例。填入接入点并测试通过即可使用真实模型。'}</p>
+        : '闪存可离线保存；分析、压缩和判卷需要先填写并验证模型配置。'}</p>
     </div>
 
     <label class="fld"><span>协议</span><select id="s-proto">
@@ -357,7 +357,7 @@ export function settingsSheet(onChange) {
       <option value="responses" ${s.protocol === 'responses' ? 'selected' : ''}>Responses API</option>
       <option value="anthropic_messages" ${s.protocol === 'anthropic_messages' ? 'selected' : ''}>Anthropic Messages</option>
     </select></label>
-    <label class="fld"><span>Base URL（填到 /v1 或 /api/v3）</span><input type="url" id="s-url" value="${esc(s.baseUrl)}" placeholder="输入 Base URL" /></label>
+    <label class="fld"><span>Base URL</span><input type="url" id="s-url" value="${esc(s.baseUrl)}" placeholder="按服务文档输入 Base URL" /></label>
     <label class="fld"><span>API Key</span><input type="password" id="s-key" value="" autocomplete="off" placeholder="${s.apiKey ? '已安全保存；留空表示不修改' : '输入 API Key'}" /></label>
     <label class="fld"><span>模型名 / Endpoint ID</span><input type="text" id="s-mdl" value="${esc(s.model)}" placeholder="输入模型名 / Endpoint ID" /></label>
     <div class="row"><button class="btn btn-pri grow" id="s-test">测一下并保存</button><button class="btn btn-ghost" id="s-save">仅保存</button></div>
@@ -386,7 +386,7 @@ export function settingsSheet(onChange) {
     <div class="row" style="margin-top:10px">
       <button class="btn btn-sm btn-ghost grow" id="s-exp">导出 JSON</button>
       <button class="btn btn-sm btn-ghost grow" id="s-imp">导入</button>
-      <button class="btn btn-sm btn-ghost" id="s-reset">重置演示数据</button>
+      <button class="btn btn-sm btn-ghost" id="s-reset">清空本机数据</button>
     </div>
     <input type="file" id="s-file" accept=".json" style="display:none" />
 
@@ -422,7 +422,7 @@ export function settingsSheet(onChange) {
     $('#s-save').addEventListener('click', async () => {
       await persistForm();
       closeSheet();
-      toast(S.isLive() ? '配置已保存' : '信息不全，继续使用演示模式');
+      toast(S.isLive() ? '配置已保存' : '配置不完整，模型功能暂不可用');
     });
     $('#s-test').addEventListener('click', async () => {
       const config = readConfig();
@@ -485,7 +485,7 @@ export function settingsSheet(onChange) {
       r.readAsText(f);
     });
     $('#s-reset').addEventListener('click', async () => {
-      if (!confirm('清空本机数据并恢复演示数据？')) return;
+      if (!confirm('清空本机全部数据？此操作无法撤销。')) return;
       await S.resetAll();
       location.reload();
     });

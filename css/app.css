@@ -92,7 +92,7 @@ mark{background:rgba(62,230,176,.2);color:var(--acc);border-radius:4px;padding:0
 
 /* ---- chips ---- */
 .chip{display:inline-flex;align-items:center;gap:5px;font-size:10.5px;font-weight:650;padding:3.5px 8px;border-radius:99px;border:1px solid var(--line-2);color:var(--fg-2);white-space:nowrap;font-family:var(--f-cn)}
-.chip-demo{border-color:rgba(255,180,84,.4);color:var(--warm);background:rgba(255,180,84,.1)}
+.chip-unconfigured{border-color:rgba(255,180,84,.4);color:var(--warm);background:rgba(255,180,84,.1)}
 .chip-live{border-color:rgba(62,230,176,.45);color:var(--acc);background:rgba(62,230,176,.1)}
 .chip.acc{border-color:rgba(62,230,176,.4);color:var(--acc);background:rgba(62,230,176,.09)}
 .chip.warm{border-color:rgba(255,180,84,.4);color:var(--warm);background:rgba(255,180,84,.09)}

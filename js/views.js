@@ -156,7 +156,7 @@ export function drillCard(it, cue, opts = {}) {
       $('#' + id + '-play')?.addEventListener('click', () => SP.say(it.skeleton));
       $('#' + id + '-used')?.addEventListener('click', () => {
         openSheet('在哪儿用的？', `<label class="fld"><span>真实场景（会议 / 邮件 / 客户名都行）</span>
-          <input type="text" id="ur-sc" placeholder="${esc((S.state.profile.scenarios || ['客户会'])[0])}" /></label>
+          <input type="text" id="ur-sc" placeholder="${esc(S.state.profile.scenarios?.[0] || '填写使用场景')}" /></label>
           <button class="btn btn-pri btn-blk" id="ur-ok">记下来</button>
           <p class="tiny zh" style="margin-top:12px">这一栏只有你自己能填。它决定这条骨架能不能毕业，也是这个 app 唯一的北极星指标。</p>`, () => {
           $('#ur-ok').addEventListener('click', () => {
@@ -350,7 +350,7 @@ export function viewCapture(app, arg) {
     </div>
     <div class="card">
       <div class="row" style="align-items:flex-start">
-        <textarea class="grow" id="cap" rows="5" placeholder="例：\n· 很多公司投了很多钱在 AI 上，但效率没明显提升\n· we invested a lot but the effect is not so obvious\n· The bottleneck has shifted from generation to verification\n· 他说了个 bottleneck 什么 shifted 的说法…">${esc(prefill)}</textarea>
+        <textarea class="grow" id="cap" rows="5" placeholder="输入一段中文意思、自己说过的英文，或刚听到但没记完整的表达">${esc(prefill)}</textarea>
         <button class="mic" id="cap-mic" aria-label="口述">
           <svg viewBox="0 0 24 24" class="ic"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5.5 11.5a6.5 6.5 0 0 0 13 0M12 18v3"/></svg>
         </button>

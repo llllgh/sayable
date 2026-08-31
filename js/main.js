@@ -46,8 +46,8 @@ function openDrill(itemId, answer = '') {
 function refreshChip() {
   const c = $('#mode-chip');
   const live = S.isLive();
-  c.textContent = live ? '真实模型' : '演示模式';
-  c.className = 'chip ' + (live ? 'chip-live' : 'chip-demo');
+  c.textContent = live ? '模型已接入' : '未接入模型';
+  c.className = 'chip ' + (live ? 'chip-live' : 'chip-unconfigured');
 }
 
 $$('#tabbar .tab').forEach(t => t.addEventListener('click', () => go(t.dataset.route)));

@@ -19,6 +19,10 @@ import {
 import { createDailyBackup, exportSnapshot } from '../src/storage/backup.ts';
 import { clearApiKey, getApiKey, setApiKey } from '../src/platform/secure.ts';
 import { LADDER_DAYS, isOwned, nextReview } from '../src/core/scheduler.ts';
+import {
+  CURRENT_STATE_FORMAT_VERSION,
+  migratePersistedState,
+} from '../src/storage/state-migrations.ts';
 
 const KEY = 'sayable.v1';
 const WEEK = 7 * 864e5;
@@ -58,7 +62,6 @@ export const state = {
     onboarded: false,
   },
   log: [],            // {at, type}
-  seeded: false,
 };
 
 /* ---------------- persistence ---------------- */
@@ -69,7 +72,7 @@ function persistableState() {
   const settings = { ...state.settings };
   delete settings.apiKey;
   return {
-    formatVersion: 2,
+    formatVersion: CURRENT_STATE_FORMAT_VERSION,
     profile: state.profile,
     items: state.items,
     inbox: state.inbox,
@@ -78,7 +81,6 @@ function persistableState() {
     compressions: state.compressions,
     settings,
     log: state.log.slice(-500),
-    seeded: state.seeded,
   };
 }
 
@@ -97,7 +99,6 @@ function hydrate(d) {
   state.notificationReplies = Array.isArray(d?.notificationReplies) ? d.notificationReplies : [];
   state.compressions = Array.isArray(d?.compressions) ? d.compressions : [];
   state.log = Array.isArray(d?.log) ? d.log.slice(-500) : [];
-  state.seeded = !!d?.seeded;
 }
 
 export async function load() {
@@ -117,16 +118,14 @@ export async function load() {
     }
   }
 
-  if (data) hydrate(data);
+  if (data) {
+    data = migratePersistedState(data);
+    hydrate(data);
+  }
 
   const legacyKey = data?.settings?.apiKey || '';
   if (legacyKey) await setApiKey(legacyKey);
   state.settings.apiKey = await getApiKey();
-
-  if (!state.seeded) {
-    seed();
-    state.seeded = true;
-  }
 
   await save();
   if (migratedLegacy) localStorage.removeItem(KEY);
@@ -160,9 +159,9 @@ export function importJSON(txt) {
   const d = JSON.parse(txt);
   if (!d || !Array.isArray(d.items)) throw new Error('格式不对');
   const key = state.settings.apiKey;
-  hydrate(d);
+  hydrate(migratePersistedState(d));
   state.settings.apiKey = key;
-  state.seeded = true; save();
+  save();
 }
 
 export async function setProviderConfig(config) {
@@ -410,102 +409,4 @@ export function relevantItems(scenario, n = 6) {
     s += i.trust * 0.25;
     return { i, s };
   }).filter(x => x.s > 0).sort((a, b) => b.s - a.s).slice(0, n).map(x => x.i);
-}
-
-/* ---------------- 演示种子数据 ---------------- */
-function seed() {
-  state.profile = {
-    name: '', role: '产品/技术负责人', org: '',
-    domains: ['AI 产品落地', '模型能力与效果', '研发效率', '客户 ROI'],
-    counterparts: ['海外客户', '海外同事', '公司高管'],
-    scenarios: ['客户方案沟通会', '和 leader 汇报进展', '跨时区周会', '面向高管的季度复盘'],
-    upcoming: '下周要跟一个海外客户讲我们 AI 方案的投入产出',
-    variety: 'international',
-  };
-  const S = [
-    {
-      skeleton: 'struggle to translate X into Y', zh: '难以把 X 转化为 Y',
-      why: '一个词组吃掉「投了很多钱但没看到效果」整段中文；比 invest a lot but no obvious improvement 短一半。',
-      srcKind: 'heard', raw: '老师给的例子：Many companies are struggling to translate AI investment into measurable productivity gains.',
-      tags: ['ROI', '落地', '效果'],
-      seeds: ['We still struggle to translate model improvements into user impact.',
-              'The team is struggling to translate faster generation into faster delivery.'],
-      box: 2, minus: 6,
-      mine: [{ text: 'We are still struggling to translate model quality into revenue.', ctx: '客户会' }],
-      hist: [true, true], used: 1,
-    },
-    {
-      skeleton: 'The bottleneck has shifted from X to Y', zh: '瓶颈已经从 X 转移到 Y',
-      why: '直接给出「变化 + 方向」，不需要先铺垫再解释。汇报里替代「以前是…现在变成…所以…」三句话。',
-      srcKind: 'heard', raw: '在一个播客里听到：The bottleneck has shifted from generation to verification.',
-      tags: ['判断', '汇报', '效率'],
-      seeds: ['The bottleneck has shifted from writing code to reviewing it.',
-              'For us the bottleneck has shifted from model capability to workflow design.'],
-      box: 1, minus: 2, mine: [], hist: [], used: 0,
-    },
-    {
-      skeleton: 'What matters is not X, but Y', zh: '重点不是 X，而是 Y',
-      why: '把「我想强调的其实是…」的重音结构固化下来，避免用 I think the most important thing is that… 绕一大圈。',
-      srcKind: 'heard', raw: '老师列的高频结构之一', tags: ['强调', '会议'],
-      seeds: ['What matters is not how fast we ship, but whether anyone adopts it.',
-              'What matters is not the benchmark score, but the failure cases.'],
-      box: 4, minus: 12, mine: [{ text: 'What matters is not the model size, but the data we feed it.', ctx: '周会' }],
-      hist: [true, true, true], used: 2,
-    },
-    {
-      skeleton: 'This creates a gap between X and Y', zh: '这就在 X 和 Y 之间形成了落差',
-      why: '一句话说清「两边不匹配」，不用 the problem is that A is ... while B is ... 两个从句。',
-      srcKind: 'mine', raw: 'The problem is that our model is very good but the users do not feel it is good, so there is a difference between them.',
-      tags: ['问题定义', '客户'],
-      seeds: ['This creates a gap between what the model can do and what users actually experience.'],
-      box: 1, minus: 1, mine: [], hist: [false], used: 0,
-    },
-    {
-      skeleton: 'That doesn\'t necessarily mean X', zh: '这并不一定意味着 X',
-      why: '专门用来「留后路」——你原来会说 but it is not sure that…，听起来不确定且不自然。',
-      srcKind: 'mine', raw: 'But it is not sure that we can get the same result in other cases, maybe not.',
-      tags: ['留余地', '严谨'],
-      seeds: ['That doesn\'t necessarily mean the same approach works at scale.'],
-      box: 0, minus: 0, mine: [], hist: [], used: 0,
-    },
-    {
-      skeleton: 'less about X and more about Y', zh: '与其说是 X，更多是 Y',
-      why: '替代「不是完全因为 A，主要还是因为 B」这种中文式并列 + 转折。',
-      srcKind: 'heard', raw: '客户在会上说：The challenge is less about accuracy and more about trust.',
-      tags: ['归因', '客户'],
-      seeds: ['Adoption is less about features and more about habit.'],
-      box: 2, minus: 4, mine: [{ text: 'Our risk is less about the tech and more about the rollout.', ctx: '客户会' }],
-      hist: [true], used: 0,
-    },
-  ];
-  state.items = S.map(s => {
-    const it = makeItem({ skeleton: s.skeleton, zh: s.zh, why: s.why, srcKind: s.srcKind, raw: s.raw, tags: s.tags, seeds: s.seeds });
-    it.box = s.box;
-    it.createdAt = now() - (s.minus + 4) * 864e5;
-    it.mine = (s.mine || []).map(m => ({ text: m.text, at: now() - 2 * 864e5, ctx: m.ctx }));
-    it.history = (s.hist || []).map((ok, k) => ({ at: now() - (s.minus - k) * 864e5, ok, answer: '', ms: 0, ctx: '' }));
-    it.usedReal = Array.from({ length: s.used }, (_, k) => ({ at: now() - (k + 1) * 3 * 864e5, scenario: '客户方案沟通会' }));
-    it.lastAt = it.history.length ? it.history[it.history.length - 1].at : 0;
-    // 让 3 条今天到期，其它排开 —— 打开就有东西可召回
-    it.dueAt = now() - (s.minus <= 2 ? 36e5 : 0) + (s.minus <= 2 ? 0 : (s.box) * 864e5);
-    recomputeStatus(it);
-    return it;
-  });
-  state.items[1].dueAt = now() - 2 * 36e5;
-  state.items[3].dueAt = now() - 5 * 36e5;
-  state.items[4].dueAt = now() - 1 * 36e5;
-  state.compressions = [{
-    id: uid(), at: now() - 3 * 864e5,
-    long: 'I think one thing we need to be careful about is that even though the model itself has become much better in the last few months, the users in the product do not really feel this improvement, because the workflow around the model has not changed at all, so from their point of view nothing happened.',
-    short: 'The model got better, but the workflow around it didn\'t — so users never felt the gain.',
-    longWords: 58, shortWords: 17,
-    patterns: ['the workflow around X', 'users never felt the gain'],
-  }];
-  state.inbox = [
-    { id: uid(), text: '他说了个 bottleneck 什么 shifted 的说法…', at: now() - 40 * 6e4, mode: null, source: 'demo', status: 'raw', failReason: '' },
-    { id: uid(), text: '我们投了很多资源但客户还是感觉不到差别，我当时说得特别绕', at: now() - 3 * 36e5, mode: null, source: 'demo', status: 'raw', failReason: '' },
-  ];
-  state.draft = '';
-  state.notificationReplies = [];
-  state.log = [];
 }

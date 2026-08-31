@@ -9,7 +9,7 @@
       c. 必须诊断出「导致你啰嗦的那个中文思维习惯」，而不是只给正确答案。
    3) 模型不许自评「相关性 0.94」这种没有信息量的分数；只允许回答一个
       可验证的二元问题：母语者在这个真实场景里会不会这么说。
-   4) 没有 Key 时进入演示模式：返回预置的高质量样例，交互全流程可跑通。
+   4) 未配置模型时只允许离线捕获，不伪造分析结果。
    ========================================================================= */
 
 import { state, isLive, llmUsage, recordLlmUsage } from './store.js';
@@ -129,6 +129,7 @@ function providerConfig(overrides = {}) {
 }
 
 function assertCallAllowed() {
+  if (!isLive()) throw new LlmError('configuration');
   if (!isOnline()) throw new LlmError('network', 'Device is offline');
   const usage = llmUsage();
   if (usage.todayCalls >= Number(state.settings.dailyLimit || 60)) {
@@ -163,7 +164,6 @@ export async function testProvider(config = {}) {
 /* ---------- 1) 收编 ---------- */
 export async function capture(text, forcedMode) {
   const mode = forcedMode || detectMode(text);
-  if (!isLive()) return demoCapture(text, mode);
   const owned = state.items.filter(i => i.status !== 'retired').slice(0, 12)
     .map(i => `- ${i.skeleton}（${i.zh}）`).join('\n');
   const user = `${SCHEMA_HINT}
@@ -191,7 +191,6 @@ ${text}
 
 /* ---------- 2) 判卷（召回 / 立刻造句 都用这个） ---------- */
 export async function judge({ skeleton, zh, brief, answer, seeds = [] }) {
-  if (!isLive()) return demoJudge({ skeleton, answer });
   const sys = `你是英语表达教练，给学习者的产出打分。原则：
 - 只要他**用对了目标骨架**并且**意思成立、母语者会这么说**，就算通过。用词与参考例句不同没关系。
 - 不通过的情况：没用上目标结构、槽位填错导致语义不通、语法硬错、或明显不自然。
@@ -213,7 +212,6 @@ export async function judge({ skeleton, zh, brief, answer, seeds = [] }) {
 
 /* ---------- 3) 压缩台：30 秒 → 15 秒 ---------- */
 export async function compress(text) {
-  if (!isLive()) return demoCompress(text);
   const sys = `${SYS}
 
 本次任务是**压缩训练**，不是纠错。步骤严格如下：
@@ -233,7 +231,6 @@ export async function compress(text) {
 
 /* ---------- 4) 会前热身 ---------- */
 export async function preflight(scenario, items) {
-  if (!isLive()) return demoPreflight(scenario, items);
   const sys = `${SYS}
 
 本次任务是**会前 3 分钟热身**。学习者 30 分钟后要真的去开这个会，所以：
@@ -268,118 +265,4 @@ function normalize(out, mode) {
   o.flagged = BLACKLIST.some(b => low.includes(b));
   o.drill = o.drill || { brief: '用这个骨架，就你手上正在推进的一件事说一句话。', target_zh: '' };
   return o;
-}
-
-/* =======================  演示模式（无 Key 时）  ======================= */
-const DEMO_NOTE = '演示模式：以下为预置样例，配置 API Key 后即为针对你输入的真实分析。';
-
-function demoCapture(text, mode) {
-  const base = {
-    zh: {
-      read: '你想说的是「投了很多钱在 AI 上，但效率上看不到明显提升，所以开始考虑减少投入」。' + DEMO_NOTE,
-      natural: 'Many companies are struggling to translate AI investment into measurable productivity gains, and some are already pulling back.',
-      spoken: 'A lot of companies can\'t turn AI spend into real productivity gains — so some are pulling back.',
-      diagnosis: { symptom: '你会按中文顺序「先说投入、再说没效果、再说因此减少」，用三个并列小句；英语里一个动词短语就能吃掉前两段。', before: 'have invested a lot of money in AI, but they still don\'t see obvious improvements in efficiency', after: 'struggling to translate AI investment into measurable productivity gains' },
-      primary: {
-        skeleton: 'struggle to translate X into Y', zh: '难以把 X 转化为 Y',
-        why: '它把「投入了 X 但没变成 Y」这个你天天要讲的因果压成一个动词短语，替代你原来的 invest a lot but no obvious improvement。',
-        register: 'meeting', tags: ['ROI', '落地', '效果'],
-        seeds: ['We still struggle to translate model improvements into user impact.',
-                'The team is struggling to translate faster generation into faster delivery.',
-                'They struggle to translate technical capability into business value.'],
-        native_check: 'yes —— 这是商务会议里的高频说法，尤其在谈 ROI 和落地差距时。',
-        trap: 'translate 后面接的应该是「结果/价值」这类名词，不要接一个完整从句。',
-      },
-      bonus: { skeleton: 'pull back on X', zh: '收缩 / 减少在 X 上的投入' },
-      drill: { brief: '用这个结构，说一句「我们模型效果提升了，但用户还没感觉到」。场景：跟海外同事的跨时区周会。', target_zh: '我们模型变好了，但还没变成用户能感知到的体验提升。' },
-    },
-    heard: {
-      read: '你听到的是一个「变化 + 方向」的高频骨架。' + DEMO_NOTE,
-      natural: 'The bottleneck has shifted from generation to verification.',
-      spoken: null,
-      diagnosis: { symptom: null, before: null, after: null },
-      primary: {
-        skeleton: 'The bottleneck has shifted from X to Y', zh: '瓶颈已经从 X 转移到 Y',
-        why: '一句话同时给出「现在的难点是什么」和「以前的难点是什么」，替代你原来「以前是…现在变成…所以…」的三句式铺垫。',
-        register: 'meeting', tags: ['判断', '汇报', '效率'],
-        seeds: ['The bottleneck has shifted from writing code to reviewing it.',
-                'For us the bottleneck has shifted from model capability to workflow design.',
-                'The bottleneck has shifted from getting data to trusting it.'],
-        native_check: 'yes —— 技术和管理场景都非常常见，适合汇报开场直接抛判断。',
-        trap: 'X 和 Y 要是同一类东西（都是环节/都是能力），错配会让人听不懂。',
-      },
-      bonus: null,
-      drill: { brief: '用这个结构说一句关于你自己团队的判断，场景：跟 leader 汇报进展。', target_zh: '我们现在的难点已经不是把东西做出来，而是让人真的用起来。' },
-    },
-    mine: {
-      read: '你想表达的意思是成立的，问题在组织方式：结论被埋在最后。' + DEMO_NOTE,
-      natural: 'What matters is not how fast we ship, but whether anyone actually adopts it.',
-      spoken: 'What matters isn\'t shipping speed — it\'s whether anyone actually uses it.',
-      diagnosis: { symptom: '你习惯「先铺垫、再补充、最后才给结论」，英语里听众会在你铺垫时就走神；把重音结构提到句首。', before: 'I think the most important thing is that, actually, maybe not the speed', after: 'What matters is not X, but Y' },
-      primary: {
-        skeleton: 'What matters is not X, but Y', zh: '重点不是 X，而是 Y',
-        why: '把你最常用的「我觉得最重要的其实是…」一次性固化成一个可以整块调用的重音结构，开口就把结论放在前面。',
-        register: 'meeting', tags: ['强调', '会议', '结论先行'],
-        seeds: ['What matters is not the benchmark score, but the failure cases.',
-                'What matters is not whether we can build it, but whether we can support it.',
-                'What matters is not the model size, but the data we feed it.'],
-        native_check: 'yes —— 会议里表达优先级时的标准说法，正式度适中。',
-        trap: 'X 和 Y 要词性对齐（都用名词或都用 whether 从句），不要一边名词一边完整句。',
-      },
-      bonus: { skeleton: 'we\'re optimizing for X, not Y', zh: '我们优化的目标是 X，不是 Y' },
-      drill: { brief: '用这个结构讲一句关于你当前项目取舍的话。场景：面向高管的季度复盘。', target_zh: '重点不是我们上了多少功能，而是留存有没有变化。' },
-    },
-  };
-  base.fragment = { ...base.heard, read: '你只记得半句，我按最高频的形态还原为 "The bottleneck has shifted from X to Y"。' + DEMO_NOTE };
-  const out = base[mode] || base.zh;
-  return new Promise(r => setTimeout(() => r(normalize(JSON.parse(JSON.stringify(out)), mode)), 700));
-}
-
-function demoJudge({ skeleton, answer }) {
-  const core = skeleton.replace(/\b[XYZ]\b/g, '').split(/\s+/).filter(w => w.length > 2 && !/^(the|a|an|to|of|into|from|is|not|but)$/i.test(w));
-  const a = (answer || '').toLowerCase();
-  const hits = core.filter(w => a.includes(w.toLowerCase().replace(/[^a-z']/g, '')));
-  const ok = hits.length >= Math.max(1, Math.ceil(core.length * 0.6)) && a.split(/\s+/).length >= 5;
-  return new Promise(r => setTimeout(() => r({
-    ok, used_target: ok,
-    verdict: ok ? '过了 —— 目标结构用上了，意思也站得住。' : '没过 —— 目标结构没用上或没说完整。',
-    fix: ok ? null : `试试：${skeleton.replace('X', 'model improvements').replace('Y', 'user impact')}`,
-    tighter: null,
-    note: ok ? '演示模式下按关键词判定；接上真实模型后会判断自然度和槽位是否填对。' : '演示模式下按关键词判定：先把骨架本身说出来，再考虑填什么。',
-  }), 600));
-}
-
-function demoCompress(text) {
-  const w = (text || '').trim().split(/\s+/).filter(Boolean).length;
-  return new Promise(r => setTimeout(() => r({
-    short: 'The model got better, but the workflow around it didn\'t — so users never felt the gain.',
-    kept: '保住了「模型确实变好了」「用户没感觉到」「原因是流程没变」三层因果。',
-    cuts: [
-      { what: '删掉 I think one thing we need to be careful about is that 这类开场铺垫', why: '英语里直接给判断本身就是「需要注意」的信号，铺垫等于让听众多等 4 秒。' },
-      { what: '把 from their point of view nothing happened 合并进 users never felt the gain', why: '同一个意思说了两遍；英语用一个 felt 就同时表达了「主观感受」和「没发生」。' },
-    ],
-    symptom: '你倾向于把一个因果关系拆成三个小句并逐个补充限定，英语里靠 but + 一个动词就能承载整个转折。',
-    patterns: [
-      { skeleton: 'the workflow around X', zh: '围绕 X 的那套流程', why: '你经常需要区分「模型本身」和「模型周边的流程」，这是你话题里的核心区分。', seeds: ['The workflow around the model hasn\'t changed at all.'] },
-      { skeleton: 'users never felt the gain', zh: '用户根本没感觉到这个提升', why: '一句话说完「指标涨了但体感没变」，替代你原来的两句解释。', seeds: ['Latency dropped 30%, but users never felt the gain.'] },
-    ],
-    _demo: true, _srcWords: w,
-  }), 800));
-}
-
-function demoPreflight(scenario, items) {
-  const pick = items.slice(0, 3);
-  return new Promise(r => setTimeout(() => r({
-    reuse: pick.map((i, k) => ({
-      id: i.id,
-      reason: ['谈投入产出落差时几乎一定用得上。', '开场直接抛判断，比铺垫更抓人。', '客户追问风险时用来留余地。'][k] || '这场会大概率用得上。',
-      drill: ['用它说一句「我们模型好了但客户还没感觉到价值」。', '用它说一句「现在的难点不在技术，在推广」。', '用它说一句「这个结果不一定能复制到别的客户」。'][k] || '用它就这场会的内容说一句话。',
-    })),
-    fresh: [
-      { skeleton: 'the payoff shows up in X, not Y', zh: '收益体现在 X 上，不是 Y 上', why: '客户最容易用错的指标问你，你需要把「看哪个指标」说清楚。', seeds: ['The payoff shows up in cycle time, not headcount.'], drill: '用它说一句「收益体现在交付周期上，不是人数上」。' },
-      { skeleton: 'we\'d rather be slow on X than wrong on Y', zh: '宁可在 X 上慢，也不要在 Y 上错', why: '谈风险和节奏时表达取舍，比 we should be careful 有分量得多。', seeds: ['We\'d rather be slow on rollout than wrong on data access.'], drill: '用它说一句关于上线节奏和数据安全的取舍。' },
-    ],
-    avoid: '别说 "we invested a lot of money and the effect is not so obvious"（中文式并列 + 弱形容词）；改成 "we\'re still struggling to translate that investment into measurable gains"。' + DEMO_NOTE,
-    _demo: true,
-  }), 800));
 }

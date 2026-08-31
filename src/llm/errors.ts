@@ -10,7 +10,7 @@ export type LlmErrorKind =
 
 const ACTIONS: Record<LlmErrorKind, string> = {
   auth: 'API Key 不对或没有权限，请到设置里重新填写后点“测一下”。',
-  model: '接入点能访问，但模型名不可用。火山方舟通常要填写 Endpoint ID。',
+  model: '接入点能访问，但模型标识不可用。请检查模型名或 Endpoint ID 后重试。',
   rate_limit: '接入点正在限流，原文已保留到待处理，可稍后重试。',
   network: '当前网络不可用或接入点超时，原文已保留到待处理。',
   invalid_output: '模型输出不符合格式，原文已保留，可稍后重新分析。',
