@@ -1,0 +1,66 @@
+/* ui.js — 轻量渲染工具 */
+export const h = (html) => html;
+export const esc = (s = '') => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+
+/* 骨架里的 X/Y/Z 高亮 */
+export const skel = (s = '') => esc(s).replace(/\b([XYZ])\b/g, '<b>$1</b>');
+
+export const $ = (sel, root = document) => root.querySelector(sel);
+export const $$ = (sel, root = document) => [...root.querySelectorAll(sel)];
+
+let toastTimer;
+export function toast(msg) {
+  const t = $('#toast'); if (!t) return;
+  t.textContent = msg; t.classList.add('on');
+  clearTimeout(toastTimer); toastTimer = setTimeout(() => t.classList.remove('on'), 2300);
+}
+
+export function openSheet(title, bodyHTML, onMount) {
+  const s = $('#sheet');
+  $('#sheet-title').textContent = title;
+  $('#sheet-body').innerHTML = bodyHTML;
+  s.setAttribute('aria-hidden', 'false');
+  document.body.style.overflow = 'hidden';
+  onMount?.($('#sheet-body'));
+}
+export function closeSheet() {
+  const sheet = $('#sheet');
+  const wasOpen = sheet.getAttribute('aria-hidden') === 'false';
+  sheet.setAttribute('aria-hidden', 'true');
+  document.body.style.overflow = '';
+  return wasOpen;
+}
+
+export function ago(ts) {
+  if (!ts) return '—';
+  const d = Date.now() - ts, m = 6e4, hh = 36e5, dd = 864e5;
+  if (d < m) return '刚刚';
+  if (d < hh) return Math.floor(d / m) + ' 分钟前';
+  if (d < dd) return Math.floor(d / hh) + ' 小时前';
+  if (d < 30 * dd) return Math.floor(d / dd) + ' 天前';
+  return Math.floor(d / (30 * dd)) + ' 个月前';
+}
+export function inWords(ts) {
+  const d = ts - Date.now();
+  if (d <= 0) return '现在';
+  const dd = 864e5;
+  if (d < 36e5) return Math.max(1, Math.round(d / 6e4)) + ' 分钟后';
+  if (d < dd) return Math.round(d / 36e5) + ' 小时后';
+  return Math.round(d / dd) + ' 天后';
+}
+export const words = (s = '') => s.trim().split(/\s+/).filter(Boolean).length;
+
+export function ladderHTML(box, owned) {
+  return `<span class="ladder">${[0, 1, 2, 3, 4].map(k =>
+    `<i class="${owned && k === 4 ? 'own' : (k < box ? 'on' : '')}"></i>`).join('')}</span>`;
+}
+export const srcPill = (kind) => {
+  const m = { heard: ['听到的', 'src-heard'], fragment: ['听到的', 'src-heard'], mine: ['改我的', 'src-mine'], compress: ['压缩台', 'src-mine'], zh: ['中译英', 'src-zh'], preflight: ['会前', 'src-zh'] };
+  const [t, c] = m[kind] || ['—', 'src-zh'];
+  return `<span class="pill-src ${c}">${t}</span>`;
+};
+
+export function thinking(label = '正在分析') {
+  return `<div class="card flat"><div class="think"><span class="dots"><i></i><i></i><i></i></span><span>${esc(label)}…</span></div>
+    <div style="margin-top:12px;display:grid;gap:7px"><div class="skeleton" style="width:88%"></div><div class="skeleton" style="width:64%"></div><div class="skeleton" style="width:76%"></div></div></div>`;
+}

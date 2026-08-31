@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1, user-scalable=no" />
+<title>说得出 · Sayable</title>
+<meta name="description" content="把听懂的英文表达，变成能说出口的个人表达库。" />
+<meta name="theme-color" content="#080B10" />
+<meta http-equiv="Content-Security-Policy" content="default-src 'self' capacitor:; connect-src 'self' https: http: ws: wss:; img-src 'self' data: blob:; style-src 'self' 'unsafe-inline'; font-src 'self' data:; worker-src 'self' blob:;" />
+<meta name="mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+<meta name="apple-mobile-web-app-title" content="说得出" />
+<link rel="manifest" href="manifest.webmanifest" />
+<link rel="apple-touch-icon" href="icon-192.png" />
+<link rel="icon" href="icon.svg" type="image/svg+xml" />
+<link rel="stylesheet" href="css/app.css" />
+</head>
+<body>
+  <div id="glow" aria-hidden="true"><span></span><span></span></div>
+
+  <header id="topbar">
+    <button class="tb-left" id="btn-profile" aria-label="我的画像">
+      <svg viewBox="0 0 24 24" class="ic"><circle cx="12" cy="8" r="3.4"/><path d="M4.8 20c1.2-3.7 4-5.5 7.2-5.5s6 1.8 7.2 5.5"/></svg>
+    </button>
+    <div class="tb-title">
+      <strong>说得出</strong>
+      <span id="mode-chip" class="chip chip-demo">演示模式</span>
+    </div>
+    <button class="tb-right" id="btn-settings" aria-label="设置">
+      <svg viewBox="0 0 24 24" class="ic"><circle cx="12" cy="12" r="3"/><path d="M12 3v2.2M12 18.8V21M3 12h2.2M18.8 12H21M5.6 5.6l1.6 1.6M16.8 16.8l1.6 1.6M18.4 5.6l-1.6 1.6M7.2 16.8l-1.6 1.6"/></svg>
+    </button>
+  </header>
+
+  <main id="app" role="main"></main>
+
+  <nav id="tabbar" role="navigation">
+    <button data-route="home" class="tab"><svg viewBox="0 0 24 24" class="ic"><path d="M4 11.5 12 4.5l8 7"/><path d="M6 10.6V20h12v-9.4"/></svg><em>今天</em></button>
+    <button data-route="capture" class="tab"><svg viewBox="0 0 24 24" class="ic"><path d="M12 5v14M5 12h14"/></svg><em>收编</em></button>
+    <button data-route="compress" class="tab"><svg viewBox="0 0 24 24" class="ic"><path d="M4 8h16M7 12h10M10 16h4"/></svg><em>压缩台</em></button>
+    <button data-route="preflight" class="tab"><svg viewBox="0 0 24 24" class="ic"><path d="M5 12.5 19 5l-3.2 14-4-4.6z"/><path d="M11.8 14.4 9.4 19l-1.1-4.2"/></svg><em>会前</em></button>
+    <button data-route="library" class="tab"><svg viewBox="0 0 24 24" class="ic"><path d="M5 5.5h6v13H5zM13 5.5h6v13h-6z"/></svg><em>句库</em></button>
+  </nav>
+
+  <div id="sheet" class="sheet" aria-hidden="true">
+    <div class="sheet-scrim" data-close></div>
+    <section class="sheet-panel" role="dialog" aria-modal="true">
+      <div class="sheet-grip" data-close></div>
+      <div class="sheet-head"><h3 id="sheet-title"></h3><button class="x" data-close aria-label="关闭">✕</button></div>
+      <div class="sheet-body" id="sheet-body"></div>
+    </section>
+  </div>
+
+  <div id="toast" aria-live="polite"></div>
+
+  <script type="module" src="js/main.js"></script>
+</body>
+</html>

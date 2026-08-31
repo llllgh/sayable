@@ -1,0 +1,3 @@
+{"id":"placeholder-01","input":"The bottleneck has shifted from generation to verification.","mode":"heard","expected":{"keep":true,"skeleton_contains":["bottleneck","X","Y"],"diagnosis_required":false},"replace_with_real_sample":true}
+{"id":"placeholder-02","input":"I think the most important thing is maybe not how fast we ship but actually whether the users use it.","mode":"mine","expected":{"keep":true,"skeleton_contains":["X","Y"],"diagnosis_required":true},"replace_with_real_sample":true}
+{"id":"placeholder-03","input":"in today's fast-paced world","mode":"heard","expected":{"keep":false,"blacklist":["in today's fast-paced world"]},"replace_with_real_sample":true}

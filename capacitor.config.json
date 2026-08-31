@@ -1,0 +1,22 @@
+{
+  "appId": "com.jerryl20.sayable",
+  "appName": "说得出",
+  "webDir": "www",
+  "android": {
+    "allowMixedContent": false,
+    "backgroundColor": "#06080C"
+  },
+  "plugins": {
+    "CapacitorHttp": {
+      "enabled": true
+    },
+    "Keyboard": {
+      "resize": "body",
+      "resizeOnFullScreen": true
+    },
+    "LocalNotifications": {
+      "smallIcon": "ic_stat_sayable",
+      "iconColor": "#12B98A"
+    }
+  }
+}

@@ -1,0 +1,9 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">说得出</string>
+    <string name="title_activity_main">说得出</string>
+    <string name="package_name">com.jerryl20.sayable</string>
+    <string name="custom_url_scheme">com.jerryl20.sayable</string>
+    <string name="shortcut_capture_short">闪存</string>
+    <string name="shortcut_capture_long">存进说得出</string>
+</resources>

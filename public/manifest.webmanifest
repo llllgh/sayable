@@ -1,0 +1,17 @@
+{
+  "name": "说得出 · Sayable",
+  "short_name": "说得出",
+  "description": "把听懂的英文表达，变成能说出口的个人表达库。",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#06080C",
+  "theme_color": "#06080C",
+  "lang": "zh-CN",
+  "icons": [
+    {"src": "icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any maskable"},
+    {"src": "icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable"},
+    {"src": "icon.svg", "sizes": "any", "type": "image/svg+xml"}
+  ]
+}
