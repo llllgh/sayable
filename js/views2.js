@@ -294,9 +294,9 @@ export function onboardingSheet(onReady) {
       <option value="chat_completions">Chat Completions</option>
       <option value="responses">Responses API</option>
     </select></label>
-    <label class="fld"><span>Base URL</span><input type="url" id="ob-url" value="${esc(s.baseUrl)}" placeholder="https://ark.cn-beijing.volces.com/api/v3" /></label>
+    <label class="fld"><span>Base URL</span><input type="url" id="ob-url" value="${esc(s.baseUrl)}" placeholder="输入 Base URL" /></label>
     <label class="fld"><span>API Key</span><input type="password" id="ob-key" autocomplete="off" placeholder="输入 API Key" /></label>
-    <label class="fld"><span>模型名 / Endpoint ID</span><input type="text" id="ob-model" value="${esc(s.model)}" placeholder="ep-..." /></label>
+    <label class="fld"><span>模型名 / Endpoint ID</span><input type="text" id="ob-model" value="${esc(s.model)}" placeholder="输入模型名 / Endpoint ID" /></label>
     <button class="btn btn-pri btn-blk" id="ob-test">测一下并进入</button>
     <button class="btn btn-ghost btn-blk btn-sm" id="ob-demo" style="margin-top:8px">先用演示模式</button>
     <p class="tiny zh" id="ob-result" style="margin-top:10px"></p>`, () => {
@@ -357,9 +357,9 @@ export function settingsSheet(onChange) {
       <option value="responses" ${s.protocol === 'responses' ? 'selected' : ''}>Responses API</option>
       <option value="anthropic_messages" ${s.protocol === 'anthropic_messages' ? 'selected' : ''}>Anthropic Messages</option>
     </select></label>
-    <label class="fld"><span>Base URL（填到 /v1 或 /api/v3）</span><input type="url" id="s-url" value="${esc(s.baseUrl)}" placeholder="https://ark.cn-beijing.volces.com/api/v3" /></label>
+    <label class="fld"><span>Base URL（填到 /v1 或 /api/v3）</span><input type="url" id="s-url" value="${esc(s.baseUrl)}" placeholder="输入 Base URL" /></label>
     <label class="fld"><span>API Key</span><input type="password" id="s-key" value="" autocomplete="off" placeholder="${s.apiKey ? '已安全保存；留空表示不修改' : '输入 API Key'}" /></label>
-    <label class="fld"><span>模型名 / Endpoint ID</span><input type="text" id="s-mdl" value="${esc(s.model)}" placeholder="ep-..." /></label>
+    <label class="fld"><span>模型名 / Endpoint ID</span><input type="text" id="s-mdl" value="${esc(s.model)}" placeholder="输入模型名 / Endpoint ID" /></label>
     <div class="row"><button class="btn btn-pri grow" id="s-test">测一下并保存</button><button class="btn btn-ghost" id="s-save">仅保存</button></div>
     <p class="tiny zh" id="s-test-result" style="margin-top:10px">Key 在 Android 上写入 Keystore 加密存储，不进 SQLite、日志或导出文件。</p>
 

@@ -22,12 +22,8 @@ import { LADDER_DAYS, isOwned, nextReview } from '../src/core/scheduler.ts';
 
 const KEY = 'sayable.v1';
 const WEEK = 7 * 864e5;
-const DEFAULT_BASE_URL = typeof __SAYABLE_DEFAULT_BASE_URL__ === 'string'
-  ? __SAYABLE_DEFAULT_BASE_URL__
-  : '';
-const DEFAULT_MODEL = typeof __SAYABLE_DEFAULT_MODEL__ === 'string'
-  ? __SAYABLE_DEFAULT_MODEL__
-  : '';
+const DEFAULT_BASE_URL = '';
+const DEFAULT_MODEL = '';
 
 /* 间隔阶梯：天。box 5 = 毕业候选 */
 export const LADDER = [...LADDER_DAYS];
