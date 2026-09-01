@@ -21,7 +21,6 @@ import com.getcapacitor.PluginCall;
 import com.getcapacitor.PluginMethod;
 import com.getcapacitor.annotation.CapacitorPlugin;
 import com.getcapacitor.annotation.Permission;
-import com.getcapacitor.annotation.PermissionCallback;
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.File;
@@ -137,16 +136,7 @@ public class CloudSpeechPlugin extends Plugin {
     @PluginMethod
     public void startRecognition(PluginCall call) {
         if (getPermissionState("microphone") != PermissionState.GRANTED) {
-            requestPermissionForAlias("microphone", call, "startAfterPermission");
-            return;
-        }
-        startSession(call);
-    }
-
-    @PermissionCallback
-    private void startAfterPermission(PluginCall call) {
-        if (getPermissionState("microphone") != PermissionState.GRANTED) {
-            call.reject("麦克风权限被拒绝");
+            call.reject("请先授予麦克风权限");
             return;
         }
         startSession(call);

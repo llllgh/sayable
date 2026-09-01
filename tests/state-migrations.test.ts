@@ -44,6 +44,7 @@ describe('persisted state migration', () => {
       items: [],
       inbox: [],
       compressions: [],
+      dailyRecommendations: null,
       notificationReplies: [],
     })).toEqual({
       formatVersion: CURRENT_STATE_FORMAT_VERSION,
@@ -51,6 +52,7 @@ describe('persisted state migration', () => {
       items: [],
       inbox: [],
       compressions: [],
+      dailyRecommendations: null,
       notificationReplies: [],
       settings: {
         providerMode: 'profile',
@@ -97,6 +99,7 @@ describe('persisted state migration', () => {
       name: '',
       role: '',
       org: '',
+      goal: '',
       domains: [],
       counterparts: [],
       scenarios: [],
@@ -171,5 +174,32 @@ describe('persisted state migration', () => {
       model: '',
       protocol: 'responses',
     });
+  });
+
+  it('preserves a valid daily recommendation deck', () => {
+    const migrated = migratePersistedState({
+      formatVersion: 4,
+      items: [],
+      dailyRecommendations: {
+        date: '2026-09-01',
+        generatedAt: 100,
+        currentIndex: 1,
+        items: Array.from({ length: 5 }, (_, index) => ({
+          id: `recommendation-${index}`,
+          skeleton: `move from X to Y ${index}`,
+          zh: `从 X 转向 Y ${index}`,
+          why: '适合当前沟通场景',
+          example: `We moved from option ${index} to a clearer plan.`,
+          drill: '说明一次变化',
+          register: 'meeting',
+          tags: ['推进'],
+          collectedItemId: '',
+        })),
+      },
+    }) as Record<string, any>;
+
+    expect(migrated.formatVersion).toBe(CURRENT_STATE_FORMAT_VERSION);
+    expect(migrated.dailyRecommendations.currentIndex).toBe(1);
+    expect(migrated.dailyRecommendations.items).toHaveLength(5);
   });
 });

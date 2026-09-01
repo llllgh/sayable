@@ -27,8 +27,7 @@ export const canSpeak = () => isCloudSpeechReady() || 'speechSynthesis' in windo
 
 let rec = null;
 let cloudStop = null;
-let cloudStarting = false;
-let cloudStopRequested = false;
+let cloudGeneration = 0;
 
 function listenWithSystem({ lang = 'en-US', onText, onEnd, onError }) {
   if (!SR) { onError?.(new Error('当前浏览器不支持语音输入，请用键盘输入')); return () => {}; }
@@ -51,17 +50,17 @@ function listenWithSystem({ lang = 'en-US', onText, onEnd, onError }) {
 
 export function listen(options) {
   stop();
+  const generation = cloudGeneration;
   if (
     isCloudSpeechReady()
     && canUseCloudRecognition(state.settings.speechApiKey)
   ) {
     let latest = null;
-    cloudStarting = true;
-    cloudStopRequested = false;
     startCloudRecognition({
       profile: activeServiceProfile(),
       apiKey: state.settings.speechApiKey,
       onResult: (result) => {
+        if (generation !== cloudGeneration) return;
         latest = result;
         options.onText?.(result.text, result.final ? result.text : '');
         if (result.final) {
@@ -73,34 +72,36 @@ export function listen(options) {
         }
       },
       onEnd: () => {
+        if (generation !== cloudGeneration) return;
         cloudStop = null;
         options.onEnd?.(latest?.text || '');
       },
       onError: (error) => {
+        if (generation !== cloudGeneration) return;
         cloudStop = null;
         options.onError?.(error);
       },
     }).then((stopCloud) => {
-      cloudStarting = false;
-      cloudStop = stopCloud;
-      if (cloudStopRequested) stopCloud();
-    }).catch((error) => {
-      cloudStarting = false;
-      if (SR) {
-        listenWithSystem(options);
-      } else {
-        options.onError?.(error instanceof Error ? error : new Error(String(error)));
+      if (generation !== cloudGeneration) {
+        stopCloud();
+        return;
       }
+      cloudStop = stopCloud;
+    }).catch((error) => {
+      if (generation !== cloudGeneration) return;
+      options.onError?.(error instanceof Error ? error : new Error(String(error)));
     });
-    return stop;
+    return () => {
+      if (generation === cloudGeneration) stop();
+    };
   }
   return listenWithSystem(options);
 }
 
 export function stop() {
+  cloudGeneration += 1;
   try { rec?.stop(); } catch (e) {}
   rec = null;
-  if (cloudStarting) cloudStopRequested = true;
   if (cloudStop) {
     cloudStop();
     cloudStop = null;

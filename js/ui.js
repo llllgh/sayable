@@ -67,7 +67,7 @@ export function ladderHTML(box, owned) {
     `<i class="${owned && k === 4 ? 'own' : (k < box ? 'on' : '')}"></i>`).join('')}</span>`;
 }
 export const srcPill = (kind) => {
-  const m = { heard: ['听到的', 'src-heard'], fragment: ['听到的', 'src-heard'], mine: ['改我的', 'src-mine'], compress: ['压缩台', 'src-mine'], zh: ['中译英', 'src-zh'], preflight: ['会前', 'src-zh'] };
+  const m = { heard: ['听到的', 'src-heard'], fragment: ['听到的', 'src-heard'], mine: ['改我的', 'src-mine'], compress: ['压缩台', 'src-mine'], zh: ['中译英', 'src-zh'], preflight: ['会前', 'src-zh'], recommendation: ['推荐', 'src-recommendation'] };
   const [t, c] = m[kind] || ['—', 'src-zh'];
   return `<span class="pill-src ${c}">${t}</span>`;
 };

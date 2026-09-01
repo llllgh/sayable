@@ -72,3 +72,27 @@ export const preflightSchema = z.object({
   })).max(2).catch([]),
   avoid: z.string().catch(''),
 }).passthrough();
+
+export const recommendationSchema = z.object({
+  items: z.array(z.object({
+    skeleton: z.string().min(1),
+    zh: z.string().min(1),
+    why: z.string().min(1),
+    example: z.string().min(1),
+    drill: z.string().min(1),
+    register: z.enum(['meeting', 'email', 'casual']).catch('meeting'),
+    tags: z.array(z.string()).max(3).catch([]),
+  })).min(5).max(6),
+}).superRefine((value, context) => {
+  const keys = value.items.map((item) => item.skeleton
+    .trim()
+    .replace(/\s+/g, ' ')
+    .toLowerCase());
+  if (new Set(keys).size !== keys.length) {
+    context.addIssue({
+      code: 'custom',
+      path: ['items'],
+      message: 'recommendation skeletons must be unique',
+    });
+  }
+});

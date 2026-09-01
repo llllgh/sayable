@@ -26,6 +26,7 @@ import {
   compressSchema,
   judgeSchema,
   preflightSchema,
+  recommendationSchema,
 } from '../src/llm/schemas.ts';
 import { isOnline } from '../src/platform/network.ts';
 
@@ -42,6 +43,7 @@ function profileBlock() {
   return [
     p.role && `身份/岗位：${p.role}`,
     p.org && `所在组织：${p.org}`,
+    p.goal && `学习英语的目的：${p.goal}`,
     p.domains?.length && `常聊的话题：${p.domains.join('、')}`,
     p.counterparts?.length && `主要说英语的对象：${p.counterparts.join('、')}`,
     p.scenarios?.length && `高频真实场景：${p.scenarios.join('、')}`,
@@ -256,6 +258,55 @@ export async function preflight(scenario, items) {
     { maxTokens: 1500, task: 'preflight' },
   );
   return out;
+}
+
+/* ---------- 5) 今日推荐 ---------- */
+export async function recommendDaily() {
+  const ownExamples = state.items
+    .flatMap(item => (item.mine || []).map(example => ({
+      at: Number(example.at || 0),
+      text: String(example.text || '').trim().slice(0, 280),
+      context: String(example.ctx || '').trim().slice(0, 80),
+    })))
+    .filter(example => example.text)
+    .sort((a, b) => b.at - a.at)
+    .slice(0, 12)
+    .map(example => `- ${example.text}${example.context ? `（场景：${example.context}）` : ''}`)
+    .join('\n');
+  const existing = state.items
+    .filter(item => item.status !== 'retired')
+    .slice(0, 30)
+    .map(item => `- ${String(item.skeleton || '').slice(0, 120)}（${String(item.zh || '').slice(0, 80)}）`)
+    .join('\n');
+  const sys = `你是一名为中文母语职业人士挑选高频英语表达的教练。
+
+本次任务是生成一副“今日推荐”牌组。严格遵守：
+1. 固定给 5 个不同的可复用表达骨架，每个都带 X / Y / Z 槽位或稳定交际功能。
+2. 优先依据学习者的岗位、学习目的、沟通对象、真实场景和他过去自己造过的句子；资料不足时使用中性职业场景，不虚构项目、公司、客户或结论。
+3. 5 个表达必须覆盖不同交际功能，且不能与已有骨架重复或只是换词改写。
+4. 只选务实母语者在会议、邮件或日常协作中真的会说的高频结构。禁止 AI 味、教科书味、低频俚语和花哨表达，包括 ${BLACKLIST.map(item => `"${item}"`).join('、')}。
+5. example 是一条完整、自然、可直接朗读的英文例句；drill 是中文造句任务，只描述意图和场景，不得泄露目标骨架。
+6. why 必须简短说明它为什么适合这个学习者，不得声称用户提供过不存在的事实。
+7. 只输出 JSON，不要 markdown 或额外说明。
+
+JSON：
+{"items":[{"skeleton":"...","zh":"...","why":"...","example":"...","drill":"...","register":"meeting|email|casual","tags":["最多3个中文标签"]}]}`;
+  const user = `【学习者画像】
+${profileBlock()}
+
+【过去自己造过的例句】
+${ownExamples || '（暂无）'}
+
+【已经在句库里的骨架，不要重复】
+${existing || '（暂无）'}
+
+生成今天的 5 个推荐。`;
+
+  return await chat(
+    [{ role: 'system', content: sys }, { role: 'user', content: user }],
+    recommendationSchema,
+    { temperature: 0.65, maxTokens: 1600, task: 'recommendation' },
+  );
 }
 
 /* ---------------- 校验：模型只是提议者 ---------------- */

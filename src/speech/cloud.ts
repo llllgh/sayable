@@ -2,6 +2,7 @@ import {
   Capacitor,
   CapacitorHttp,
   registerPlugin,
+  type PermissionState,
   type PluginListenerHandle,
 } from '@capacitor/core';
 import { Directory, Filesystem } from '@capacitor/filesystem';
@@ -16,6 +17,14 @@ export interface CloudSpeechResult extends SpeechTiming {
 }
 
 interface CloudSpeechPlugin {
+  checkPermissions(): Promise<{
+    microphone: PermissionState;
+  }>;
+  requestPermissions(options: {
+    permissions: string[];
+  }): Promise<{
+    microphone: PermissionState;
+  }>;
   playAudio(options: {
     data: string;
     cacheName: string;
@@ -184,6 +193,18 @@ export async function probeCloudRecognition(options: {
   });
 }
 
+async function ensureMicrophonePermission(): Promise<void> {
+  let status = await CloudSpeech.checkPermissions();
+  if (status.microphone === 'granted') return;
+
+  status = await CloudSpeech.requestPermissions({
+    permissions: ['microphone'],
+  });
+  if (status.microphone !== 'granted') {
+    throw new Error('麦克风权限被拒绝，请在系统设置中开启');
+  }
+}
+
 export async function startCloudRecognition(options: {
   profile: ServiceProfile;
   apiKey: string;
@@ -191,6 +212,8 @@ export async function startCloudRecognition(options: {
   onEnd?: () => void;
   onError?: (error: Error) => void;
 }): Promise<() => void> {
+  await ensureMicrophonePermission();
+
   const handles: PluginListenerHandle[] = [];
   let cleaned = false;
   const cleanup = async () => {

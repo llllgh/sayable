@@ -3,6 +3,7 @@ import * as S from './store.js';
 import { $, $$, closeSheet, toast } from './ui.js';
 import { viewHome, viewCapture, viewDrillItem, bindRouter } from './views.js';
 import { viewCompress, viewPreflight, viewLibrary, profileSheet, settingsSheet, onboardingSheet } from './views2.js';
+import { viewRecommendations } from './recommendations.js';
 import { initNetwork } from '../src/platform/network.ts';
 import { initializePlatform } from '../src/platform/lifecycle.ts';
 import { processOutbox } from '../src/outbox.ts';
@@ -24,12 +25,17 @@ async function start() {
 const ROUTES = {
   home: viewHome, capture: viewCapture, compress: viewCompress,
   preflight: viewPreflight, library: viewLibrary,
+  recommend: viewRecommendations,
 };
 
 function go(route, arg) {
   const r = ROUTES[route] ? route : 'home';
   if (location.hash.slice(1) !== r) history.replaceState(null, '', '#' + r);
-  $$('#tabbar .tab').forEach(t => t.classList.toggle('on', t.dataset.route === r));
+  const activeTab = r === 'recommend' ? 'home' : r;
+  $$('#tabbar .tab').forEach(t => t.classList.toggle(
+    'on',
+    t.dataset.route === activeTab,
+  ));
   window.scrollTo({ top: 0, behavior: 'instant' });
   ROUTES[r](app, arg);
   refreshChip();

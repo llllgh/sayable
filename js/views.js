@@ -214,6 +214,13 @@ export function viewHome(app) {
   const ev = S.evolutionPairs(1)[0];
   const recent = S.live().slice(0, 4);
   const inbox = S.state.inbox;
+  const recommendations = S.todayRecommendationDeck();
+  const recommendationsCollected = recommendations?.items.filter(
+    recommendation => (
+      recommendation.collectedItemId
+      && S.getItem(recommendation.collectedItemId)
+    ),
+  ).length || 0;
 
   app.innerHTML = `<div class="view stack">
 
@@ -245,6 +252,18 @@ export function viewHome(app) {
         <button class="btn btn-sm btn-ghost" data-drop="${f.id}" style="height:28px;padding:0 9px">删</button></div>`).join('')}
       <p class="tiny zh" style="margin-top:8px">攒着不处理没关系，这里不是待办清单，是一个安全的暂存处。</p>
     </div>` : ''}
+
+    <button type="button" class="recommendation-entry" data-nav="recommend">
+      <span class="recommendation-entry-icon" aria-hidden="true">
+        <svg viewBox="0 0 24 24" class="ic"><rect x="5" y="4" width="11" height="15" rx="2"/><path d="m9 8 2 2 4-4M9 14h4M18 8h1a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2h-8"/></svg>
+      </span>
+      <span class="grow">
+        <span class="eyebrow" style="color:var(--warm)">今日推荐</span>
+        <strong class="zh">${recommendations ? `${recommendations.items.length} 张已就绪` : '抽一组真正用得上的表达'}</strong>
+        <small class="zh">${recommendations ? `已收编 ${recommendationsCollected} 张 · 继续今天的牌组` : '根据画像、沟通场景和你过去造过的句子生成'}</small>
+      </span>
+      <svg viewBox="0 0 24 24" class="ic recommendation-entry-arrow" aria-hidden="true"><path d="m9 18 6-6-6-6"/></svg>
+    </button>
 
     ${it ? `<div id="hero"></div>` : (due.length ? `<div class="card flat">
       <p class="zh sub">还有 ${due.length} 条到期的召回，等你想练的时候在句库里点开就行。</p>
@@ -390,8 +409,16 @@ export function viewCapture(app, arg) {
     <div id="cap-out"></div>
   </div>`;
 
-  const ta = $('#cap'), chip = $('#cap-mode');
+  const ta = $('#cap');
+  const chip = $('#cap-mode');
+  const micButton = $('#cap-mic');
+  const analyzeButton = $('#cap-go');
   let forced = null, recording = false;
+  const stopCaptureRecording = () => {
+    recording = false;
+    micButton.classList.remove('rec');
+    SP.stop();
+  };
   const refresh = () => { const m = forced || L.detectMode(ta.value); chip.textContent = ta.value.trim() ? MODE_LABEL[m] : '自动识别'; chip.className = 'chip ' + (ta.value.trim() ? 'acc' : ''); };
   ta.addEventListener('input', () => { refresh(); if (!pendingFlashId) S.saveDraft(ta.value); }); refresh();
   if (prefill) ta.focus();
@@ -404,25 +431,46 @@ export function viewCapture(app, arg) {
       });
   });
 
-  $('#cap-mic').addEventListener('click', () => {
-    const btn = $('#cap-mic');
+  micButton.addEventListener('click', () => {
     if (!SP.canListen()) {
       ta.focus();
       toast('请使用系统键盘上的语音输入');
       return;
     }
-    if (recording) { SP.stop(); recording = false; btn.classList.remove('rec'); return; }
-    recording = true; btn.classList.add('rec');
+    if (recording) {
+      stopCaptureRecording();
+      return;
+    }
+    recording = true;
+    micButton.classList.add('rec');
     const zh = /[\u4e00-\u9fa5]/.test(ta.value) || !ta.value;
-    SP.listen({ lang: zh ? 'zh-CN' : 'en-US', onText: t => { ta.value = t; refresh(); },
-      onEnd: () => { recording = false; btn.classList.remove('rec'); },
-      onError: e => { recording = false; btn.classList.remove('rec'); toast(e.message); } });
+    SP.listen({
+      lang: zh ? 'zh-CN' : 'en-US',
+      onText: t => {
+        if (!recording) return;
+        ta.value = t;
+        refresh();
+      },
+      onEnd: () => {
+        recording = false;
+        micButton.classList.remove('rec');
+      },
+      onError: e => {
+        recording = false;
+        micButton.classList.remove('rec');
+        toast(e.message);
+      },
+    });
   });
 
-  $('#cap-go').addEventListener('click', async () => {
+  analyzeButton.addEventListener('click', async () => {
+    stopCaptureRecording();
     const text = ta.value.trim();
     if (text.length < 4) { toast('先写点东西'); return; }
     const out = $('#cap-out');
+    analyzeButton.disabled = true;
+    micButton.disabled = true;
+    ta.readOnly = true;
     out.innerHTML = thinking('正在找英语里最自然的压缩方式');
     out.scrollIntoView({ behavior: 'smooth', block: 'center' });
     if (pendingFlashId) S.setFlashStatus(pendingFlashId, 'analyzing');
@@ -434,6 +482,10 @@ export function viewCapture(app, arg) {
       if (pendingFlashId) S.setFlashStatus(pendingFlashId, 'failed', L.userMessage(e));
       out.innerHTML = `<div class="card rose"><p class="zh sub">${esc(L.userMessage(e))}</p>
         <p class="tiny zh" style="margin-top:8px">输入已保留在上面，可以直接重试。</p></div>`;
+    } finally {
+      analyzeButton.disabled = false;
+      micButton.disabled = false;
+      ta.readOnly = false;
     }
   });
 

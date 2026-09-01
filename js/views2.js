@@ -389,6 +389,7 @@ export function profileSheet() {
   openSheet('我的画像', `
     <p class="tiny zh" style="margin-bottom:14px">这些选填信息只用于让分析和练习贴合你的实际场景。</p>
     <label class="fld"><span>岗位 / 你在做什么</span><input type="text" id="p-role" value="${esc(p.role)}" placeholder="填写岗位或职责（选填）" /></label>
+    <label class="fld"><span>为什么要学英语</span><textarea id="p-goal" rows="2" placeholder="填写你希望用英语完成什么（选填）">${esc(p.goal || '')}</textarea></label>
     <label class="fld"><span>常聊的话题（顿号分隔）</span><textarea id="p-dom" rows="2" placeholder="填写常聊的话题（选填）">${esc(CSV(p.domains))}</textarea></label>
     <label class="fld"><span>主要跟谁说英语</span><input type="text" id="p-cp" value="${esc(CSV(p.counterparts))}" placeholder="填写沟通对象（选填）" /></label>
     <label class="fld"><span>高频真实场景（造句和出题会轮着用）</span><textarea id="p-sc" rows="3" placeholder="填写常见沟通场景（选填）">${esc(CSV(p.scenarios))}</textarea></label>
@@ -396,7 +397,8 @@ export function profileSheet() {
     <button class="btn btn-pri btn-blk" id="p-save">保存</button>`, () => {
     $('#p-save').addEventListener('click', () => {
       Object.assign(S.state.profile, {
-        role: $('#p-role').value.trim(), domains: parse($('#p-dom').value),
+        role: $('#p-role').value.trim(), goal: $('#p-goal').value.trim(),
+        domains: parse($('#p-dom').value),
         counterparts: parse($('#p-cp').value), scenarios: parse($('#p-sc').value),
         upcoming: $('#p-up').value.trim(),
       });

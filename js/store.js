@@ -32,6 +32,12 @@ import {
   migratePersistedState,
 } from '../src/storage/state-migrations.ts';
 import {
+  createDailyRecommendationDeck,
+  localDateKey,
+  normalizeDailyRecommendationDeck,
+  recommendationIndex,
+} from '../src/core/recommendations.ts';
+import {
   DEFAULT_SERVICE_REGION,
   DEFAULT_VOICE_MODE,
   getServiceProfile,
@@ -50,7 +56,7 @@ export const WEEKLY_NEW_BUDGET = 3;
 
 export const state = {
   profile: {
-    name: '', role: '', org: '',
+    name: '', role: '', org: '', goal: '',
     domains: [], counterparts: [], scenarios: [], upcoming: '',
     variety: 'international',
   },
@@ -59,6 +65,7 @@ export const state = {
   draft: '',            // 输入草稿：被打断也不会丢
   notificationReplies: [],
   compressions: [],
+  dailyRecommendations: null,
   settings: {
     providerMode: 'profile',
     serviceRegion: DEFAULT_SERVICE_REGION,
@@ -101,6 +108,7 @@ function persistableState() {
     draft: state.draft,
     notificationReplies: state.notificationReplies,
     compressions: state.compressions,
+    dailyRecommendations: state.dailyRecommendations,
     settings,
     log: state.log.slice(-500),
   };
@@ -132,6 +140,9 @@ function hydrate(d) {
   state.draft = d?.draft || '';
   state.notificationReplies = Array.isArray(d?.notificationReplies) ? d.notificationReplies : [];
   state.compressions = Array.isArray(d?.compressions) ? d.compressions : [];
+  state.dailyRecommendations = normalizeDailyRecommendationDeck(
+    d?.dailyRecommendations,
+  );
   state.log = Array.isArray(d?.log) ? d.log.slice(-500) : [];
 }
 
@@ -329,7 +340,15 @@ export function llmUsage() {
 /* trust: 3 = 真实听到的（已被真人使用过，最可信）
           2 = 从我自己的表达被纠正而来（贴合我的真实需求）
           1 = 模型主动提议（最不可信，最容易是「LLM 味」） */
-export const TRUST_BY_SRC = { heard: 3, mine: 2, zh: 1, fragment: 3, preflight: 1, compress: 2 };
+export const TRUST_BY_SRC = {
+  heard: 3,
+  mine: 2,
+  zh: 1,
+  fragment: 3,
+  preflight: 1,
+  compress: 2,
+  recommendation: 1,
+};
 
 export function makeItem(o) {
   return {
@@ -432,6 +451,52 @@ export function newThisWeek() {
   return state.items.filter(i => i.createdAt > t && i.status !== 'retired').length;
 }
 export function budgetLeft() { return Math.max(0, WEEKLY_NEW_BUDGET - newThisWeek()); }
+export function newItemsThisWeek() {
+  const t = now() - WEEK;
+  return live()
+    .filter(item => item.createdAt > t)
+    .sort((a, b) => (
+      (a.usedReal.length - b.usedReal.length)
+      || (a.mine.length - b.mine.length)
+      || (a.createdAt - b.createdAt)
+    ));
+}
+
+/* ---------------- 今日推荐 ---------------- */
+export function todayRecommendationDeck(date = new Date()) {
+  const deck = normalizeDailyRecommendationDeck(state.dailyRecommendations);
+  return deck?.date === localDateKey(date) ? deck : null;
+}
+
+export async function saveDailyRecommendations(items) {
+  const deck = createDailyRecommendationDeck({
+    items,
+    idFactory: uid,
+  });
+  state.dailyRecommendations = deck;
+  track('recommendations_generated');
+  await save();
+  return deck;
+}
+
+export function setRecommendationIndex(index) {
+  const deck = todayRecommendationDeck();
+  if (!deck) return null;
+  deck.currentIndex = recommendationIndex(deck, index);
+  state.dailyRecommendations = deck;
+  save();
+  return deck;
+}
+
+export function markRecommendationCollected(recommendationId, itemId) {
+  const deck = todayRecommendationDeck();
+  const recommendation = deck?.items.find(item => item.id === recommendationId);
+  if (!recommendation) return;
+  recommendation.collectedItemId = itemId;
+  state.dailyRecommendations = deck;
+  track('recommendation_collected');
+  save();
+}
 
 /* ---------------- 调度 ---------------- */
 export function live() { return state.items.filter(i => i.status !== 'retired'); }

@@ -5,8 +5,9 @@ import {
   normalizeServiceRegion,
   normalizeVoiceMode,
 } from '../speech/profiles';
+import { normalizeDailyRecommendationDeck } from '../core/recommendations';
 
-export const CURRENT_STATE_FORMAT_VERSION = 4;
+export const CURRENT_STATE_FORMAT_VERSION = 5;
 
 type JsonRecord = Record<string, unknown>;
 
@@ -25,6 +26,7 @@ const EMPTY_PROFILE = {
   name: '',
   role: '',
   org: '',
+  goal: '',
   domains: [],
   counterparts: [],
   scenarios: [],
@@ -49,6 +51,7 @@ function signature(value: string): string {
 
 function profileSignature(profile: unknown): string {
   if (!isRecord(profile)) return '';
+  if (String(profile.goal ?? '').trim()) return '';
   return signature(JSON.stringify([
     profile.name ?? '',
     profile.role ?? '',
@@ -151,6 +154,9 @@ export function migratePersistedState(input: unknown): unknown {
     items,
     inbox,
     compressions,
+    dailyRecommendations: normalizeDailyRecommendationDeck(
+      input.dailyRecommendations,
+    ),
     notificationReplies,
     settings: migrateSettings(input.settings),
   };
