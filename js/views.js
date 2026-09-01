@@ -164,7 +164,7 @@ export function drillCard(it, cue, opts = {}) {
       <div class="card ${ok ? 'acc' : 'rose'}" style="margin-top:12px">
         <div class="row" style="justify-content:space-between;margin-bottom:8px">
           <span class="eyebrow" style="color:${ok ? 'var(--acc)' : 'var(--rose)'}">${ok ? '过了' : '还没过'}</span>
-          ${ladderHTML(nxt.box, nxt.status === 'owned')}
+          ${ladderHTML(nxt.box, nxt.status === 'owned', { labeled: true })}
         </div>
         <p class="zh" style="font-weight:600">${esc(r.verdict || '')}</p>
         ${r.fix ? `<div class="compare" style="margin-top:11px"><div class="after"><div class="wc" style="color:var(--acc)">改成</div><p class="en">${esc(r.fix)}</p></div></div>` : ''}

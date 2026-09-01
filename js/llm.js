@@ -28,6 +28,10 @@ import {
   preflightSchema,
   recommendationSchema,
 } from '../src/llm/schemas.ts';
+import {
+  normalizeJudgementText,
+  resolveJudgement,
+} from '../src/core/judgement.ts';
 import { isOnline } from '../src/platform/network.ts';
 
 export { LlmError, userMessage };
@@ -202,22 +206,28 @@ ${text}
 /* ---------- 2) 判卷（召回 / 立刻造句 都用这个） ---------- */
 export async function judge({ skeleton, zh, brief, answer, seeds = [] }) {
   const sys = `你是英语表达教练，给学习者的产出打分。原则：
-- 只要他**用对了目标骨架**并且**意思成立、母语者会这么说**，就算通过。用词与参考例句不同没关系。
-- 不通过的情况：没用上目标结构、槽位填错导致语义不通、语法硬错、或明显不自然。
+- 本题只检验学习者能否主动调用**目标骨架**。只要用对目标骨架、槽位关系正确且核心语义成立，就应通过；用词与参考例句不同没关系。
+- 大小写、句号、逗号等标点是 ASR 格式噪声，必须完全忽略，不得据此扣分。
+- 主谓一致、冠词、单复数、局部词形或局部时态错误，如果不改变核心语义，属于 minor：仍然通过，同时在 fix 中给出最小修正。例如 "compacting context help you" 应判通过，并修正为 "compacting context helps you"。
+- 只有以下情况属于 blocking 并判为不通过：没有使用目标骨架；关键槽位关系错误；句子无法理解；错误明显改变了人物、时间、否定或核心语义。
+- issue_level 只能是 none、minor、blocking。ok 必须等于 used_target && meaning_intact && issue_level != "blocking"。
 - 反馈要极短：他能记住的只有一句话。
 - 如果他的句子里有一个可以顺手改得更紧凑的地方，给出 tighter（更紧的版本）；没有就填 null。
 只输出 JSON：
-{"ok":true/false,"used_target":true/false,"verdict":"一句话结论（中文，先说过没过）","fix":"最小改动后的正确版本（英文），如果本来就对就填 null","tighter":"更紧凑的版本（英文）或 null","note":"一句话点评（中文，说清他这次卡在哪或做对了什么）"}`;
+{"ok":true/false,"used_target":true/false,"meaning_intact":true/false,"issue_level":"none|minor|blocking","verdict":"一句话结论（中文，先说过没过）","fix":"最小改动后的正确版本（英文），如果本来就对就填 null","tighter":"更紧凑的版本（英文）或 null","note":"一句话点评（中文，说清核心骨架是否用对；minor 问题只作为修正提示）"}`;
+  const normalizedAnswer = normalizeJudgementText(answer);
   const user = `目标骨架：${skeleton}
 骨架中文：${zh}
 题目：${brief}
 参考例句：${seeds.slice(0, 2).join(' / ') || '（无）'}
-学习者的答案：${answer}`;
-  return await chat(
+学习者的原始答案（仅用于生成 fix）：${answer}
+忽略大小写和标点后的判卷文本（用于判断骨架与语义）：${normalizedAnswer}`;
+  const result = await chat(
     [{ role: 'system', content: sys }, { role: 'user', content: user }],
     judgeSchema,
     { temperature: 0.1, maxTokens: 600, task: 'judge' },
   );
+  return resolveJudgement(result);
 }
 
 /* ---------- 3) 压缩台：30 秒 → 15 秒 ---------- */

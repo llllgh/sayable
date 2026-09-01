@@ -160,6 +160,8 @@ label.fld>span{display:block;font-size:12px;font-weight:650;color:var(--fg-2);ma
 .ladder i{width:15px;height:4.5px;border-radius:99px;background:rgba(255,255,255,.14)}
 .ladder i.on{background:var(--acc)}
 .ladder i.own{background:var(--violet)}
+.ladder-status{display:flex;flex-direction:column;align-items:flex-end;gap:5px;flex:0 0 auto}
+.ladder-label{font-family:var(--f-cn);font-size:10px;line-height:1;color:var(--fg-3);white-space:nowrap}
 
 /* ---- divider / section ---- */
 .sec{display:flex;align-items:center;gap:10px;margin:6px 2px 0}

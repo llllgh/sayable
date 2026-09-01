@@ -62,9 +62,14 @@ export function inWords(ts) {
 }
 export const words = (s = '') => s.trim().split(/\s+/).filter(Boolean).length;
 
-export function ladderHTML(box, owned) {
-  return `<span class="ladder">${[0, 1, 2, 3, 4].map(k =>
-    `<i class="${owned && k === 4 ? 'own' : (k < box ? 'on' : '')}"></i>`).join('')}</span>`;
+export function ladderHTML(box, owned, { labeled = false } = {}) {
+  const step = Math.max(0, Math.min(5, Number(box) || 0));
+  const bars = `<span class="ladder" aria-hidden="true">${[0, 1, 2, 3, 4].map(k =>
+    `<i class="${owned && k === 4 ? 'own' : (k < step ? 'on' : '')}"></i>`).join('')}</span>`;
+  if (!labeled) {
+    return `<span aria-label="复习阶梯 ${step} / 5">${bars}</span>`;
+  }
+  return `<span class="ladder-status" aria-label="复习阶梯 ${step} / 5"><span class="ladder-label">复习阶梯 ${step} / 5</span>${bars}</span>`;
 }
 export const srcPill = (kind) => {
   const m = { heard: ['听到的', 'src-heard'], fragment: ['听到的', 'src-heard'], mine: ['改我的', 'src-mine'], compress: ['压缩台', 'src-mine'], zh: ['中译英', 'src-zh'], preflight: ['会前', 'src-zh'], recommendation: ['推荐', 'src-recommendation'] };

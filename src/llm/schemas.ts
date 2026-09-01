@@ -35,6 +35,8 @@ export const captureSchema = z.object({
 export const judgeSchema = z.object({
   ok: z.boolean(),
   used_target: z.boolean(),
+  meaning_intact: z.boolean(),
+  issue_level: z.enum(['none', 'minor', 'blocking']),
   verdict: z.string().min(1),
   fix: nullableText,
   tighter: nullableText,
