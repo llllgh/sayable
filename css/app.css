@@ -239,6 +239,17 @@ ul.bul li{margin:4px 0}
 .compare .before{background:rgba(255,122,138,.06);border-color:rgba(255,122,138,.2)}
 .compare .after{background:rgba(62,230,176,.06);border-color:rgba(62,230,176,.22)}
 .wc{font-size:10.5px;font-weight:700;font-family:var(--f-en);letter-spacing:.04em}
+.judgement-diff{margin-top:13px;padding:11px 0;border-top:1px solid var(--line);border-bottom:1px solid var(--line)}
+.judgement-diff-title{margin-bottom:8px;color:var(--fg-2);font-family:var(--f-cn);font-size:11px;font-weight:700}
+.judgement-diff-row{display:grid;grid-template-columns:62px minmax(0,1fr);gap:10px;align-items:start;padding:5px 0}
+.judgement-diff-row>span{padding-top:2px;color:var(--fg-3);font-family:var(--f-cn);font-size:10.5px;white-space:nowrap}
+.judgement-diff-row p{min-width:0;font-size:14px;line-height:1.65;overflow-wrap:anywhere;white-space:pre-wrap}
+.judgement-diff-change{border-radius:4px;padding:1px 2px;text-decoration:none}
+del.judgement-diff-change{background:rgba(255,122,138,.16);color:#FF9AA8;text-decoration:line-through;text-decoration-thickness:1px}
+ins.judgement-diff-change{background:rgba(62,230,176,.18);color:var(--acc)}
+.judgement-diff-summary{margin-top:7px;color:var(--fg-2);font-size:11.5px;line-height:1.55}
+.judgement-note{margin-top:9px;color:var(--fg-2);font-size:12px;line-height:1.6}
+.judgement-note b{margin-right:4px;color:var(--fg);font-weight:650}
 
 /* ---- daily recommendations ---- */
 .recommendation-entry{
@@ -288,6 +299,18 @@ ul.bul li{margin:4px 0}
 }
 .recommendation-arrow[disabled]{opacity:.25;pointer-events:none}
 .recommendation-swap{height:auto;margin-bottom:8px;padding:11px 13px;justify-content:flex-start;text-align:left}
+.recommendation-complete{
+  min-height:390px;padding:42px 28px;display:flex;flex-direction:column;align-items:center;justify-content:center;
+  text-align:center;border:1px solid rgba(62,230,176,.28);border-radius:var(--r-l);
+  background:linear-gradient(158deg,rgba(62,230,176,.1),rgba(255,255,255,.025))
+}
+.recommendation-complete-icon{
+  width:58px;height:58px;display:grid;place-items:center;margin-bottom:18px;border-radius:50%;
+  border:1px solid rgba(62,230,176,.42);background:rgba(62,230,176,.12);color:var(--acc);
+  font-size:29px;font-weight:700
+}
+.recommendation-complete h2{font-size:20px}
+.recommendation-complete p{max-width:340px;margin-top:10px;color:var(--fg-2);font-size:13.5px;line-height:1.7}
 .recommendation-out-left{animation:recommendationOutLeft .15s ease-in both}
 .recommendation-out-right{animation:recommendationOutRight .15s ease-in both}
 @keyframes recommendationOutLeft{to{opacity:0;transform:translateX(-34px) rotate(-1deg)}}

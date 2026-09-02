@@ -5,6 +5,7 @@ import * as S from './store.js';
 import * as L from './llm.js';
 import * as SP from './speech.js';
 import { esc, skel, $, $$, toast, openSheet, closeSheet, ago, inWords, words, ladderHTML, srcPill, thinking } from './ui.js';
+import { buildJudgementFeedback } from '../src/core/judgement.ts';
 
 export let go = () => {};                 // 由 main.js 注入路由
 export function bindRouter(fn) { go = fn; }
@@ -41,6 +42,31 @@ function speechFeedbackHTML(assessment) {
       assessment.wordsPerMinute ? ` · ${assessment.wordsPerMinute} 词/分钟` : ''
     }</p>
   </div>`;
+}
+
+function diffSegmentsHTML(segments, kind) {
+  const tag = kind === 'before' ? 'del' : 'ins';
+  return segments.map(segment => (
+    segment.changed
+      ? `<${tag} class="judgement-diff-change">${esc(segment.value)}</${tag}>`
+      : esc(segment.value)
+  )).join('');
+}
+
+function judgementDiffHTML(diff, title) {
+  if (!diff) return '';
+  return `<section class="judgement-diff" aria-label="${esc(title)}">
+    <div class="judgement-diff-title">${esc(title)}</div>
+    <div class="judgement-diff-row">
+      <span>你的表达</span>
+      <p class="en">${diffSegmentsHTML(diff.before, 'before')}</p>
+    </div>
+    <div class="judgement-diff-row">
+      <span>建议表达</span>
+      <p class="en">${diffSegmentsHTML(diff.after, 'after')}</p>
+    </div>
+    <p class="judgement-diff-summary zh">${esc(diff.summary)}</p>
+  </section>`;
 }
 
 /* ---------------------------------------------------------------- 召回卡（核心组件） */
@@ -157,7 +183,13 @@ export function drillCard(it, cue, opts = {}) {
     });
 
     function finish(ok, r, ans) {
-      S.grade(it.id, ok, { answer: ans, ms: Date.now() - t0, ctx: cue.ctx, why: r.note || '' });
+      const feedback = buildJudgementFeedback(ans, { ...r, ok });
+      S.grade(it.id, ok, {
+        answer: ans,
+        ms: Date.now() - t0,
+        ctx: cue.ctx,
+        why: feedback.note || feedback.correction?.summary || '',
+      });
       opts.onResult?.(ok);
       const nxt = S.getItem(it.id);
       out.innerHTML = `
@@ -166,10 +198,10 @@ export function drillCard(it, cue, opts = {}) {
           <span class="eyebrow" style="color:${ok ? 'var(--acc)' : 'var(--rose)'}">${ok ? '过了' : '还没过'}</span>
           ${ladderHTML(nxt.box, nxt.status === 'owned', { labeled: true })}
         </div>
-        <p class="zh" style="font-weight:600">${esc(r.verdict || '')}</p>
-        ${r.fix ? `<div class="compare" style="margin-top:11px"><div class="after"><div class="wc" style="color:var(--acc)">改成</div><p class="en">${esc(r.fix)}</p></div></div>` : ''}
-        ${r.tighter ? `<div class="compare" style="margin-top:8px"><div class="after"><div class="wc" style="color:var(--acc)">还能更紧</div><p class="en">${esc(r.tighter)}</p></div></div>` : ''}
-        ${r.note ? `<p class="dim zh" style="margin-top:10px">${esc(r.note)}</p>` : ''}
+        <p class="zh" style="font-weight:600">${esc(feedback.verdict)}</p>
+        ${judgementDiffHTML(feedback.correction, '需要调整')}
+        ${judgementDiffHTML(feedback.tighter, '更紧说法')}
+        ${feedback.note ? `<p class="judgement-note zh"><b>为什么：</b>${esc(feedback.note)}</p>` : ''}
         ${speechFeedbackHTML(speechAssessment)}
         <p class="skel en" style="margin-top:12px">${skel(it.skeleton)} <button class="link" id="${id}-play" style="margin-left:6px">🔊 听</button></p>
         <div class="row wrap" style="margin-top:13px">

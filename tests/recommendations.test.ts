@@ -5,6 +5,8 @@ import {
   localDateKey,
   normalizeDailyRecommendationDeck,
   recommendationIndex,
+  recommendationProgress,
+  selectRemainingRecommendation,
 } from '../src/core/recommendations';
 import { recommendationSchema } from '../src/llm/schemas';
 
@@ -66,7 +68,51 @@ describe('daily recommendations', () => {
 
     expect(deck?.currentIndex).toBe(4);
     expect(deck?.items[1].collectedItemId).toBe('library-item');
+    expect(deck?.items[1].practicedAt).toBe(0);
     expect(recommendationIndex(deck!, -4)).toBe(0);
+  });
+
+  it('only selects recommendations that have not been practiced', () => {
+    const deck = normalizeDailyRecommendationDeck({
+      date: '2026-09-02',
+      generatedAt: 100,
+      currentIndex: 1,
+      items: candidates().map((item, index) => ({
+        ...item,
+        id: `recommendation-${index}`,
+        practicedAt: index === 1 || index === 3 ? 200 + index : 0,
+      })),
+    })!;
+
+    const selection = selectRemainingRecommendation(deck);
+    expect(selection?.card.id).toBe('recommendation-2');
+    expect(selection?.position).toBe(1);
+    expect(selection?.remaining.map(card => card.id)).toEqual([
+      'recommendation-0',
+      'recommendation-2',
+      'recommendation-4',
+    ]);
+    expect(recommendationProgress(deck)).toEqual({
+      total: 5,
+      completed: 2,
+      remaining: 3,
+    });
+  });
+
+  it('returns a completed state when every recommendation was practiced', () => {
+    const deck = normalizeDailyRecommendationDeck({
+      date: '2026-09-02',
+      generatedAt: 100,
+      currentIndex: 4,
+      items: candidates().map((item, index) => ({
+        ...item,
+        id: `recommendation-${index}`,
+        practicedAt: 200 + index,
+      })),
+    })!;
+
+    expect(selectRemainingRecommendation(deck)).toBeNull();
+    expect(recommendationProgress(deck).remaining).toBe(0);
   });
 
   it('requires five unique recommendations from the model', () => {
@@ -91,5 +137,8 @@ describe('daily recommendations', () => {
     expect(view).toContain("card.addEventListener('pointerup'");
     expect(view).toContain("srcKind: 'recommendation'");
     expect(view).toContain('drillCard(item');
+    expect(view).toContain('markRecommendationPracticed');
+    expect(view).toContain('今天的推荐都练完了');
+    expect(view).not.toContain('继续深入练习');
   });
 });

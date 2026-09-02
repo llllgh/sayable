@@ -12,7 +12,11 @@ import {
   toast,
 } from './ui.js';
 import { drillCard } from './views.js';
-import { recommendationKey } from '../src/core/recommendations.ts';
+import {
+  recommendationKey,
+  recommendationProgress,
+  selectRemainingRecommendation,
+} from '../src/core/recommendations.ts';
 
 let generationPromise = null;
 
@@ -26,6 +30,24 @@ function itemForRecommendation(recommendation) {
   return S.state.items.find(
     item => recommendationKey(item.skeleton) === key,
   ) || null;
+}
+
+function syncPracticedCards(deck) {
+  let current = deck;
+  for (const recommendation of deck.items) {
+    if (recommendation.practicedAt > 0) continue;
+    const item = itemForRecommendation(recommendation);
+    const practiced = item?.history
+      ?.filter(entry => Number(entry.at) >= deck.generatedAt)
+      .sort((left, right) => Number(right.at) - Number(left.at))[0];
+    if (practiced) {
+      current = S.markRecommendationPracticed(
+        recommendation.id,
+        practiced.at,
+      ) || current;
+    }
+  }
+  return current;
 }
 
 async function generateDeck() {
@@ -112,14 +134,9 @@ function mountPractice(app, recommendation) {
 
   S.markRecommendationCollected(recommendation.id, item.id);
   const action = $('#recommend-practice');
-  if (action) action.textContent = '已收编 · 正在练习';
-  const collected = S.todayRecommendationDeck()?.items.filter(card => (
-    card.collectedItemId && S.getItem(card.collectedItemId)
-  )).length || 0;
-  const collectedChip = $('#recommend-collected');
-  if (collectedChip) {
-    collectedChip.textContent = `已收编 ${collected} / ${S.todayRecommendationDeck()?.items.length || 0}`;
-    collectedChip.classList.add('acc');
+  if (action) {
+    action.textContent = '练习进行中';
+    action.disabled = true;
   }
 
   const context = S.state.profile.scenarios?.[0] || '今天的真实沟通';
@@ -130,9 +147,15 @@ function mountPractice(app, recommendation) {
   }, {
     label: '今日推荐 · 深入练习',
     onGraded: () => {
-      toast('已进入复习队列');
-      renderDeck(app, S.todayRecommendationDeck());
-      $('#recommend-card')?.scrollIntoView({
+      const nextDeck = S.markRecommendationPracticed(recommendation.id);
+      const progress = nextDeck
+        ? recommendationProgress(nextDeck)
+        : null;
+      toast(progress?.remaining
+        ? `完成一条 · 今天还剩 ${progress.remaining} 条`
+        : '今天的推荐都练完了');
+      renderDeck(app, nextDeck || S.todayRecommendationDeck());
+      $('#recommend-card, .recommendation-complete')?.scrollIntoView({
         behavior: 'smooth',
         block: 'center',
       });
@@ -146,32 +169,68 @@ function mountPractice(app, recommendation) {
   });
 }
 
+function renderComplete(app, deck) {
+  const progress = recommendationProgress(deck);
+  app.innerHTML = `<div class="view stack recommendation-view">
+    ${headerHTML()}
+    <div class="recommendation-meta">
+      <span class="eyebrow" style="color:var(--acc)">今日完成</span>
+      <span class="chip acc">已练 ${progress.completed} / ${progress.total}</span>
+    </div>
+    <section class="recommendation-complete" role="status">
+      <div class="recommendation-complete-icon" aria-hidden="true">✓</div>
+      <h2 class="zh">今天的推荐都练完了</h2>
+      <p class="zh">你认真完成了 ${progress.total} 个表达，并把它们放进了后续复习队列。今天学得很扎实，可以收工了。</p>
+    </section>
+  </div>`;
+  $('#recommend-profile').addEventListener(
+    'click',
+    () => $('#btn-profile')?.click(),
+  );
+}
+
 function renderDeck(app, deck) {
   if (!deck?.items.length) {
     renderError(app, new Error('今天的推荐没有可用内容'));
     return;
   }
 
-  const index = Math.max(
-    0,
-    Math.min(deck.items.length - 1, deck.currentIndex),
-  );
-  const recommendation = deck.items[index];
+  deck = syncPracticedCards(deck);
+  const selection = selectRemainingRecommendation(deck);
+  if (!selection) {
+    renderComplete(app, deck);
+    return;
+  }
+
+  const {
+    card: recommendation,
+    position,
+    remaining,
+  } = selection;
   const existing = itemForRecommendation(recommendation);
-  const collectedCount = deck.items.filter(item => (
-    item.collectedItemId && S.getItem(item.collectedItemId)
-  )).length;
+  const progress = recommendationProgress(deck);
+  const isCollected = Boolean(
+    recommendation.collectedItemId
+    && S.getItem(recommendation.collectedItemId),
+  );
+  const practiceLabel = isCollected
+    ? '继续完成今日练习'
+    : existing
+      ? '开始今日练习'
+      : S.budgetLeft()
+        ? '收编并开始练习'
+        : '替换一条并开始练习';
 
   app.innerHTML = `<div class="view stack recommendation-view">
     ${headerHTML()}
     <div class="recommendation-meta">
       <span class="eyebrow" style="color:var(--warm)">今日抽卡</span>
-      <span class="chip ${collectedCount ? 'acc' : ''}" id="recommend-collected">已收编 ${collectedCount} / ${deck.items.length}</span>
+      <span class="chip ${progress.completed ? 'acc' : ''}">已练 ${progress.completed} · 待练 ${progress.remaining}</span>
     </div>
 
     <article class="recommendation-card" id="recommend-card" aria-live="polite" tabindex="0">
       <div class="row" style="justify-content:space-between">
-        <span class="chip">${index + 1} / ${deck.items.length}</span>
+        <span class="chip">${position + 1} / ${remaining.length}</span>
         <div class="chips">${recommendation.tags.map(
           tag => `<span class="chip">${esc(tag)}</span>`,
         ).join('')}</div>
@@ -197,13 +256,13 @@ function renderDeck(app, deck) {
     </article>
 
     <div class="recommendation-progress" aria-hidden="true">
-      ${deck.items.map((_, itemIndex) => `<i class="${itemIndex === index ? 'on' : ''}"></i>`).join('')}
+      ${remaining.map((_, itemIndex) => `<i class="${itemIndex === position ? 'on' : ''}"></i>`).join('')}
     </div>
 
     <div class="recommendation-actions">
-      <button class="recommendation-arrow" id="recommend-prev" aria-label="上一个推荐" title="上一个推荐" ${index === 0 ? 'disabled' : ''}>${arrowIcon('left')}</button>
-      <button class="btn btn-pri grow" id="recommend-practice">${existing ? '继续深入练习' : (S.budgetLeft() ? '收编并深入练习' : '替换一条并收编')}</button>
-      <button class="recommendation-arrow" id="recommend-next" aria-label="下一个推荐" title="下一个推荐" ${index === deck.items.length - 1 ? 'disabled' : ''}>${arrowIcon('right')}</button>
+      <button class="recommendation-arrow" id="recommend-prev" aria-label="上一个推荐" title="上一个推荐" ${position === 0 ? 'disabled' : ''}>${arrowIcon('left')}</button>
+      <button class="btn btn-pri grow" id="recommend-practice">${practiceLabel}</button>
+      <button class="recommendation-arrow" id="recommend-next" aria-label="下一个推荐" title="下一个推荐" ${position === remaining.length - 1 ? 'disabled' : ''}>${arrowIcon('right')}</button>
     </div>
     <div id="recommend-drill"></div>
   </div>`;
@@ -226,8 +285,12 @@ function renderDeck(app, deck) {
   );
 
   const move = (delta) => {
-    const nextIndex = index + delta;
-    if (nextIndex < 0 || nextIndex >= deck.items.length) return;
+    const nextPosition = position + delta;
+    if (nextPosition < 0 || nextPosition >= remaining.length) return;
+    const nextRecommendation = remaining[nextPosition];
+    const nextIndex = deck.items.findIndex(item => (
+      item.id === nextRecommendation.id
+    ));
     const card = $('#recommend-card');
     card.classList.add(delta > 0 ? 'recommendation-out-left' : 'recommendation-out-right');
     setTimeout(() => {

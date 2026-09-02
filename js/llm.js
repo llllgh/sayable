@@ -211,10 +211,11 @@ export async function judge({ skeleton, zh, brief, answer, seeds = [] }) {
 - 主谓一致、冠词、单复数、局部词形或局部时态错误，如果不改变核心语义，属于 minor：仍然通过，同时在 fix 中给出最小修正。例如 "compacting context help you" 应判通过，并修正为 "compacting context helps you"。
 - 只有以下情况属于 blocking 并判为不通过：没有使用目标骨架；关键槽位关系错误；句子无法理解；错误明显改变了人物、时间、否定或核心语义。
 - issue_level 只能是 none、minor、blocking。ok 必须等于 used_target && meaning_intact && issue_level != "blocking"。
-- 反馈要极短：他能记住的只有一句话。
-- 如果他的句子里有一个可以顺手改得更紧凑的地方，给出 tighter（更紧的版本）；没有就填 null。
+- fix 只放必须纠正的实质变化。若与原句相比只有大小写、标点或断句不同，fix 必须填 null。
+- tighter 只在能明显减少冗余或提高口语自然度时提供；只改大小写、标点、断句或随意换同义词时必须填 null。
+- note 要极短。fix 不为 null 时，必须点名改动前后的具体词语并解释原因；不得只写“更自然”“更完整”或“表达有误”。
 只输出 JSON：
-{"ok":true/false,"used_target":true/false,"meaning_intact":true/false,"issue_level":"none|minor|blocking","verdict":"一句话结论（中文，先说过没过）","fix":"最小改动后的正确版本（英文），如果本来就对就填 null","tighter":"更紧凑的版本（英文）或 null","note":"一句话点评（中文，说清核心骨架是否用对；minor 问题只作为修正提示）"}`;
+{"ok":true/false,"used_target":true/false,"meaning_intact":true/false,"issue_level":"none|minor|blocking","verdict":"一句话结论（中文，先说过没过）","fix":"只包含实质变化的最小修正版（英文）或 null","tighter":"明显更紧凑的版本（英文）或 null","note":"一句话解释具体改动；没有实质改动则填空字符串"}`;
   const normalizedAnswer = normalizeJudgementText(answer);
   const user = `目标骨架：${skeleton}
 骨架中文：${zh}

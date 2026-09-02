@@ -498,6 +498,20 @@ export function markRecommendationCollected(recommendationId, itemId) {
   save();
 }
 
+export function markRecommendationPracticed(recommendationId, practicedAt = now()) {
+  const deck = todayRecommendationDeck();
+  const recommendation = deck?.items.find(item => item.id === recommendationId);
+  if (!recommendation) return null;
+  recommendation.practicedAt = Math.max(
+    Number(recommendation.practicedAt) || 0,
+    Number(practicedAt) || now(),
+  );
+  state.dailyRecommendations = deck;
+  track('recommendation_practiced');
+  save();
+  return deck;
+}
+
 /* ---------------- 调度 ---------------- */
 export function live() { return state.items.filter(i => i.status !== 'retired'); }
 

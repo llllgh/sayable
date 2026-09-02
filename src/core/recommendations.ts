@@ -13,6 +13,7 @@ export interface RecommendationCard {
   register: RecommendationRegister;
   tags: string[];
   collectedItemId: string;
+  practicedAt: number;
 }
 
 export interface DailyRecommendationDeck {
@@ -20,6 +21,13 @@ export interface DailyRecommendationDeck {
   generatedAt: number;
   currentIndex: number;
   items: RecommendationCard[];
+}
+
+export interface RemainingRecommendationSelection {
+  card: RecommendationCard;
+  position: number;
+  originalIndex: number;
+  remaining: RecommendationCard[];
 }
 
 type JsonRecord = Record<string, unknown>;
@@ -65,6 +73,7 @@ function normalizeCard(
       ? value.tags.map(text).filter(Boolean).slice(0, 3)
       : [],
     collectedItemId: text(value.collectedItemId),
+    practicedAt: Math.max(0, Number(value.practicedAt) || 0),
   };
 }
 
@@ -146,4 +155,44 @@ export function recommendationIndex(
     0,
     Math.min(deck.items.length - 1, Math.floor(requested)),
   );
+}
+
+export function recommendationProgress(deck: DailyRecommendationDeck): {
+  total: number;
+  completed: number;
+  remaining: number;
+} {
+  const completed = deck.items.filter(card => card.practicedAt > 0).length;
+  return {
+    total: deck.items.length,
+    completed,
+    remaining: deck.items.length - completed,
+  };
+}
+
+export function selectRemainingRecommendation(
+  deck: DailyRecommendationDeck,
+): RemainingRecommendationSelection | null {
+  const indexed = deck.items
+    .map((card, originalIndex) => ({ card, originalIndex }))
+    .filter(({ card }) => card.practicedAt <= 0);
+  if (!indexed.length) return null;
+
+  const requested = recommendationIndex(deck, deck.currentIndex);
+  let position = indexed.findIndex(({ originalIndex }) => (
+    originalIndex === requested
+  ));
+  if (position < 0) {
+    position = indexed.findIndex(({ originalIndex }) => (
+      originalIndex > requested
+    ));
+  }
+  if (position < 0) position = 0;
+
+  return {
+    card: indexed[position].card,
+    position,
+    originalIndex: indexed[position].originalIndex,
+    remaining: indexed.map(({ card }) => card),
+  };
 }
