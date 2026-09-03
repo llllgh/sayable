@@ -4,6 +4,7 @@ export type LlmErrorKind =
   | 'unsupported_region'
   | 'rate_limit'
   | 'network'
+  | 'output_truncated'
   | 'invalid_output'
   | 'daily_limit'
   | 'configuration'
@@ -15,6 +16,7 @@ const ACTIONS: Record<LlmErrorKind, string> = {
   unsupported_region: '当前网络位置不在该模型服务支持范围内。请切换到可用网络，或选择其他文本模型服务。',
   rate_limit: '接入点正在限流，原文已保留到待处理，可稍后重试。',
   network: '当前网络不可用或接入点超时，原文已保留到待处理。',
+  output_truncated: '模型推理占满了输出预算，结果未生成完整。请重试；若持续出现，请换用可关闭思考的模型。',
   invalid_output: '模型输出不符合格式，原文已保留，可稍后重新分析。',
   daily_limit: '今天的模型调用已到上限。闪存、召回和句库仍可使用。',
   configuration: '模型配置不完整，请填写接入点、API Key、模型和协议。',

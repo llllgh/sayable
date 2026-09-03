@@ -95,8 +95,6 @@ export const state = {
     quietStart: '23:00',
     quietEnd: '08:00',
     dailyLimit: 60,
-    maxTokens: 1600,
-    timeoutMs: 30000,
     maxRetry: 3,
     supportsJsonMode: null,
     onboarded: false,

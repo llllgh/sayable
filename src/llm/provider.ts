@@ -1,5 +1,6 @@
 import { Capacitor, CapacitorHttp } from '@capacitor/core';
 import { LlmError, classifyHttpError } from './errors';
+import { LLM_OUTPUT_TOKENS } from './budgets';
 
 export type LlmProtocol =
   | 'chat_completions'
@@ -63,7 +64,7 @@ function requestBody(
   options: RequestOptions,
 ): Record<string, unknown> {
   const temperature = options.temperature ?? 0.35;
-  const maxTokens = options.maxTokens ?? 1600;
+  const maxTokens = options.maxTokens ?? LLM_OUTPUT_TOKENS.providerDefault;
 
   if (config.protocol === 'responses') {
     const system = messages
@@ -171,6 +172,27 @@ function stringifyDetail(data: unknown): string {
   }
 }
 
+function truncationReason(config: ProviderConfig, data: any): string | null {
+  if (config.protocol === 'responses') {
+    const reason = String(data?.incomplete_details?.reason || '').toLowerCase();
+    if (
+      reason.includes('max_output_tokens')
+      || (data?.status === 'incomplete' && !reason)
+    ) {
+      return reason || 'response status is incomplete';
+    }
+    return null;
+  }
+
+  if (config.protocol === 'anthropic_messages') {
+    const reason = String(data?.stop_reason || '').toLowerCase();
+    return reason === 'max_tokens' ? reason : null;
+  }
+
+  const reason = String(data?.choices?.[0]?.finish_reason || '').toLowerCase();
+  return ['length', 'max_tokens'].includes(reason) ? reason : null;
+}
+
 function extractText(config: ProviderConfig, data: any): string {
   if (config.protocol === 'responses') {
     if (typeof data?.output_text === 'string') return data.output_text;
@@ -236,6 +258,10 @@ export async function requestText(
       );
       if (result.status < 200 || result.status >= 300) {
         throw classifyHttpError(result.status, stringifyDetail(result.data));
+      }
+      const truncated = truncationReason(config, result.data);
+      if (truncated) {
+        throw new LlmError('output_truncated', truncated);
       }
       const text = extractText(config, result.data);
       if (!text.trim()) {

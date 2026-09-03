@@ -1,4 +1,5 @@
 import { z, type ZodType } from 'zod';
+import { LLM_OUTPUT_TOKENS } from './budgets';
 import { LlmError } from './errors';
 import { parseJsonObject, parseStructured } from './json';
 import {
@@ -102,7 +103,11 @@ export async function preflightProvider(
       const response = await requestText(
         { ...config, maxRetry: 0 },
         messages,
-        { temperature: 0, maxTokens: 40, jsonMode: true },
+        {
+          temperature: 0,
+          maxTokens: LLM_OUTPUT_TOKENS.providerPreflight,
+          jsonMode: true,
+        },
       );
       preflightSchema.parse(JSON.parse(response.text.trim()));
       return { supportsJsonMode: true, latencyMs: Date.now() - startedAt };
@@ -115,6 +120,7 @@ export async function preflightProvider(
           'unsupported_region',
           'network',
           'rate_limit',
+          'output_truncated',
         ].includes(error.kind)
       ) {
         throw error;
@@ -125,7 +131,11 @@ export async function preflightProvider(
   const fallback = await requestText(
     { ...config, maxRetry: 0 },
     messages,
-    { temperature: 0, maxTokens: 40, jsonMode: false },
+    {
+      temperature: 0,
+      maxTokens: LLM_OUTPUT_TOKENS.providerPreflight,
+      jsonMode: false,
+    },
   );
   preflightSchema.parse(parseJsonObject(fallback.text));
   return { supportsJsonMode: false, latencyMs: Date.now() - startedAt };

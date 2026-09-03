@@ -201,6 +201,22 @@ describe('persisted state migration', () => {
     });
   });
 
+  it('removes legacy hidden request limits', () => {
+    const migrated = migratePersistedState({
+      formatVersion: 6,
+      settings: {
+        providerMode: 'profile',
+        serviceRegion: 'global',
+        textProviderId: 'google-gemini',
+        maxTokens: 1600,
+        timeoutMs: 30000,
+      },
+    }) as Record<string, any>;
+
+    expect(migrated.settings).not.toHaveProperty('maxTokens');
+    expect(migrated.settings).not.toHaveProperty('timeoutMs');
+  });
+
   it('preserves a valid daily recommendation deck', () => {
     const migrated = migratePersistedState({
       formatVersion: 4,

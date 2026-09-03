@@ -11,7 +11,7 @@ import {
 } from '../llm/profiles';
 import { normalizeDailyRecommendationDeck } from '../core/recommendations';
 
-export const CURRENT_STATE_FORMAT_VERSION = 6;
+export const CURRENT_STATE_FORMAT_VERSION = 7;
 
 type JsonRecord = Record<string, unknown>;
 
@@ -90,6 +90,8 @@ function compressionSignature(compression: unknown): string {
 
 function migrateSettings(value: unknown): JsonRecord {
   const settings: JsonRecord = isRecord(value) ? { ...value } : {};
+  delete settings.maxTokens;
+  delete settings.timeoutMs;
   const serviceRegion = normalizeServiceRegion(settings.serviceRegion);
   const hasLegacyProvider = Boolean(
     String(settings.baseUrl || '').trim()

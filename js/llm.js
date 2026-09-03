@@ -33,6 +33,10 @@ import {
   resolveJudgement,
 } from '../src/core/judgement.ts';
 import { englishLevelLabel } from '../src/core/english-level.ts';
+import {
+  LLM_OUTPUT_TOKENS,
+  LLM_REQUEST_TIMEOUT_MS,
+} from '../src/llm/budgets.ts';
 import { isOnline } from '../src/platform/network.ts';
 
 export { LlmError, userMessage };
@@ -140,7 +144,7 @@ function providerConfig(overrides = {}) {
     baseUrl: active.baseUrl,
     apiKey: s.apiKey,
     model: active.model,
-    timeoutMs: Number(s.timeoutMs || 30000),
+    timeoutMs: LLM_REQUEST_TIMEOUT_MS,
     maxRetry: Number(s.maxRetry ?? 3),
     supportsJsonMode: s.supportsJsonMode,
     ...overrides,
@@ -158,7 +162,7 @@ function assertCallAllowed() {
 
 async function chat(messages, schema, {
   temperature = 0.35,
-  maxTokens = 1600,
+  maxTokens = LLM_OUTPUT_TOKENS.providerDefault,
   task = 'unknown',
 } = {}) {
   assertCallAllowed();
@@ -169,7 +173,7 @@ async function chat(messages, schema, {
     schema,
     {
       temperature,
-      maxTokens: Math.min(maxTokens, Number(state.settings.maxTokens || 1600)),
+      maxTokens,
     },
   );
   recordLlmUsage(task, result.tokens, Date.now() - startedAt);
@@ -203,7 +207,7 @@ ${text}
   const out = await chat(
     [{ role: 'system', content: SYS }, { role: 'user', content: user }],
     captureSchema,
-    { task: 'capture' },
+    { maxTokens: LLM_OUTPUT_TOKENS.capture, task: 'capture' },
   );
   return normalize(out, mode);
 }
@@ -231,7 +235,11 @@ export async function judge({ skeleton, zh, brief, answer, seeds = [] }) {
   const result = await chat(
     [{ role: 'system', content: sys }, { role: 'user', content: user }],
     judgeSchema,
-    { temperature: 0.1, maxTokens: 600, task: 'judge' },
+    {
+      temperature: 0.1,
+      maxTokens: LLM_OUTPUT_TOKENS.judge,
+      task: 'judge',
+    },
   );
   return resolveJudgement(result);
 }
@@ -250,7 +258,7 @@ export async function compress(text) {
   const out = await chat(
     [{ role: 'system', content: sys }, { role: 'user', content: `【学习者画像】\n${profileBlock()}\n\n【他说的一段话】\n"""\n${text}\n"""` }],
     compressSchema,
-    { maxTokens: 1400, task: 'compress' },
+    { maxTokens: LLM_OUTPUT_TOKENS.compress, task: 'compress' },
   );
   return out;
 }
@@ -271,7 +279,10 @@ export async function preflight(scenario, items) {
   const out = await chat(
     [{ role: 'system', content: sys }, { role: 'user', content: `【学习者画像】\n${profileBlock()}\n\n【这场会】\n${scenario}\n\n【他句库里可能相关的骨架】\n${list || '（空）'}` }],
     preflightSchema,
-    { maxTokens: 1500, task: 'preflight' },
+    {
+      maxTokens: LLM_OUTPUT_TOKENS.meetingPreflight,
+      task: 'preflight',
+    },
   );
   return out;
 }
@@ -321,7 +332,11 @@ ${existing || '（暂无）'}
   return await chat(
     [{ role: 'system', content: sys }, { role: 'user', content: user }],
     recommendationSchema,
-    { temperature: 0.65, maxTokens: 1600, task: 'recommendation' },
+    {
+      temperature: 0.65,
+      maxTokens: LLM_OUTPUT_TOKENS.recommendation,
+      task: 'recommendation',
+    },
   );
 }
 
