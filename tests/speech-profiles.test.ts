@@ -7,21 +7,35 @@ import {
   normalizeServiceRegion,
   normalizeVoiceMode,
 } from '../src/speech/profiles';
+import {
+  TEXT_PROVIDER_PROFILES,
+  defaultTextProviderId,
+  legacyTextProviderId,
+  textProvidersForRegion,
+} from '../src/llm/profiles';
 
 describe('service profiles', () => {
   it('keeps regional endpoints and public model names internal', () => {
-    expect(SERVICE_PROFILES.cn.llm.baseUrl).toMatch(/^https:\/\//);
-    expect(SERVICE_PROFILES.global.llm.baseUrl).toMatch(/^https:\/\//);
-    expect(SERVICE_PROFILES.cn.llm.defaultModel).not.toMatch(/^ep-/);
-    expect(SERVICE_PROFILES.global.llm.defaultModel).not.toMatch(/^ep-/);
+    expect(TEXT_PROVIDER_PROFILES['modelark-cn'].baseUrl).toMatch(/^https:\/\//);
+    expect(TEXT_PROVIDER_PROFILES['byteplus-global'].baseUrl).toMatch(/^https:\/\//);
+    expect(TEXT_PROVIDER_PROFILES['google-gemini'].baseUrl)
+      .toBe('https://generativelanguage.googleapis.com/v1beta/openai');
+    expect(TEXT_PROVIDER_PROFILES['modelark-cn'].defaultModel).not.toMatch(/^ep-/);
+    expect(TEXT_PROVIDER_PROFILES['byteplus-global'].defaultModel).not.toMatch(/^ep-/);
+    expect(TEXT_PROVIDER_PROFILES['google-gemini'].defaultModel)
+      .toMatch(/^gemini-/);
     expect(SERVICE_PROFILES.cn.speech.asrUrl).toMatch(/^wss:\/\//);
     expect(SERVICE_PROFILES.global.speech.asrUrl).toMatch(/^wss:\/\//);
     expect(SERVICE_PROFILES.cn.speech.ttsUrl)
       .toMatch(/\/api\/v3\/tts\/unidirectional$/);
     expect(SERVICE_PROFILES.global.speech.ttsUrl)
       .toMatch(/\/api\/v3\/tts\/unidirectional$/);
-    expect(SERVICE_PROFILES.global.llm.defaultModel)
-      .toBe('deepseek-v4-flash-ga-260731');
+    expect(SERVICE_PROFILES.cn.speech.label).toBe('火山引擎语音');
+    expect(SERVICE_PROFILES.global.speech.label).toBe('BytePlus Speech');
+    expect(defaultTextProviderId('global')).toBe('byteplus-global');
+    expect(legacyTextProviderId('global')).toBe('byteplus-global');
+    expect(textProvidersForRegion('cn').map(profile => profile.id))
+      .toEqual(['modelark-cn']);
   });
 
   it('uses safe defaults for unknown persisted values', () => {

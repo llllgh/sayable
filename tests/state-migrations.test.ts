@@ -56,6 +56,7 @@ describe('persisted state migration', () => {
       notificationReplies: [],
       settings: {
         providerMode: 'profile',
+        textProviderId: 'modelark-cn',
         serviceRegion: 'cn',
         voiceMode: 'system',
         baseUrl: '',
@@ -118,6 +119,7 @@ describe('persisted state migration', () => {
       model: 'my-model',
       protocol: 'chat_completions',
       providerMode: 'custom',
+      textProviderId: 'modelark-cn',
       serviceRegion: 'cn',
       voiceMode: 'system',
     });
@@ -170,10 +172,32 @@ describe('persisted state migration', () => {
 
     expect(migrated.settings).toMatchObject({
       providerMode: 'profile',
+      textProviderId: 'byteplus-global',
       serviceRegion: 'global',
       baseUrl: '',
       model: '',
       protocol: 'responses',
+    });
+  });
+
+  it('preserves an explicitly selected Gemini provider', () => {
+    const migrated = migratePersistedState({
+      formatVersion: 5,
+      settings: {
+        providerMode: 'profile',
+        serviceRegion: 'global',
+        textProviderId: 'google-gemini',
+        protocol: 'responses',
+      },
+    }) as Record<string, any>;
+
+    expect(migrated.settings).toMatchObject({
+      providerMode: 'profile',
+      serviceRegion: 'global',
+      textProviderId: 'google-gemini',
+      baseUrl: '',
+      model: '',
+      protocol: 'chat_completions',
     });
   });
 

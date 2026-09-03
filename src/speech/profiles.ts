@@ -4,12 +4,10 @@ export type VoiceMode = 'system' | 'cloud';
 export interface ServiceProfile {
   id: ServiceRegion;
   label: string;
-  llm: {
-    protocol: 'chat_completions' | 'responses';
-    baseUrl: string;
-    defaultModel: string;
-  };
   speech: {
+    label: string;
+    keyPlaceholder: string;
+    keyHelp: string;
     asrUrl: string;
     asrResourceId: string;
     ttsUrl: string;
@@ -26,12 +24,10 @@ export const SERVICE_PROFILES: Record<ServiceRegion, ServiceProfile> = {
   cn: {
     id: 'cn',
     label: '中国大陆',
-    llm: {
-      protocol: 'chat_completions',
-      baseUrl: 'https://ark.cn-beijing.volces.com/api/v3',
-      defaultModel: 'deepseek-v4-flash-ga-260731',
-    },
     speech: {
+      label: '火山引擎语音',
+      keyPlaceholder: '输入火山引擎语音 API Key',
+      keyHelp: '同一个语音 Key 用于语音识别和朗读。',
       asrUrl: 'wss://openspeech.bytedance.com/api/v3/sauc/bigmodel_async',
       asrResourceId: 'volc.seedasr.sauc.duration',
       ttsUrl: 'https://openspeech.bytedance.com/api/v3/tts/unidirectional',
@@ -42,12 +38,10 @@ export const SERVICE_PROFILES: Record<ServiceRegion, ServiceProfile> = {
   global: {
     id: 'global',
     label: '海外',
-    llm: {
-      protocol: 'responses',
-      baseUrl: 'https://ark.ap-southeast.bytepluses.com/api/v3',
-      defaultModel: 'deepseek-v4-flash-ga-260731',
-    },
     speech: {
+      label: 'BytePlus Speech',
+      keyPlaceholder: '输入 BytePlus Speech API Key',
+      keyHelp: '同一个语音 Key 用于语音识别和朗读。',
       asrUrl: 'wss://voice.ap-southeast-1.bytepluses.com/api/v3/sauc/bigmodel_async',
       asrResourceId: 'volc.seedasr.sauc.duration',
       ttsUrl: 'https://voice.ap-southeast-1.bytepluses.com/api/v3/tts/unidirectional',

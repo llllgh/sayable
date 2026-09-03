@@ -1,13 +1,17 @@
 import {
   DEFAULT_SERVICE_REGION,
   DEFAULT_VOICE_MODE,
-  getServiceProfile,
   normalizeServiceRegion,
   normalizeVoiceMode,
 } from '../speech/profiles';
+import {
+  getTextProviderProfile,
+  legacyTextProviderId,
+  normalizeTextProviderId,
+} from '../llm/profiles';
 import { normalizeDailyRecommendationDeck } from '../core/recommendations';
 
-export const CURRENT_STATE_FORMAT_VERSION = 5;
+export const CURRENT_STATE_FORMAT_VERSION = 6;
 
 type JsonRecord = Record<string, unknown>;
 
@@ -87,7 +91,6 @@ function compressionSignature(compression: unknown): string {
 function migrateSettings(value: unknown): JsonRecord {
   const settings: JsonRecord = isRecord(value) ? { ...value } : {};
   const serviceRegion = normalizeServiceRegion(settings.serviceRegion);
-  const profile = getServiceProfile(serviceRegion);
   const hasLegacyProvider = Boolean(
     String(settings.baseUrl || '').trim()
     || String(settings.model || '').trim(),
@@ -96,10 +99,15 @@ function migrateSettings(value: unknown): JsonRecord {
     || settings.providerMode === 'profile'
     ? settings.providerMode
     : (hasLegacyProvider ? 'custom' : 'profile');
+  const textProviderId = settings.textProviderId
+    ? normalizeTextProviderId(settings.textProviderId, serviceRegion)
+    : legacyTextProviderId(serviceRegion);
+  const textProvider = getTextProviderProfile(textProviderId, serviceRegion);
 
   return {
     ...settings,
     providerMode,
+    textProviderId,
     serviceRegion: settings.serviceRegion
       ? serviceRegion
       : DEFAULT_SERVICE_REGION,
@@ -111,7 +119,7 @@ function migrateSettings(value: unknown): JsonRecord {
       ? ''
       : String(settings.model || ''),
     protocol: providerMode === 'profile'
-      ? profile.llm.protocol
+      ? textProvider.protocol
       : String(settings.protocol || 'chat_completions'),
   };
 }

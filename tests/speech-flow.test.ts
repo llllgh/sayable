@@ -35,12 +35,10 @@ import { startCloudRecognition } from '../src/speech/cloud';
 const profile = {
   id: 'global',
   label: '海外',
-  llm: {
-    protocol: 'responses',
-    baseUrl: 'https://example.com',
-    defaultModel: 'model',
-  },
   speech: {
+    label: 'Test Speech',
+    keyPlaceholder: 'Enter key',
+    keyHelp: 'Test only',
     asrUrl: 'wss://example.com/asr',
     asrResourceId: 'asr',
     ttsUrl: 'https://example.com/tts',

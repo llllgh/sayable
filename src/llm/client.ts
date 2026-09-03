@@ -109,7 +109,13 @@ export async function preflightProvider(
     } catch (error) {
       if (
         error instanceof LlmError
-        && ['auth', 'model', 'network', 'rate_limit'].includes(error.kind)
+        && [
+          'auth',
+          'model',
+          'unsupported_region',
+          'network',
+          'rate_limit',
+        ].includes(error.kind)
       ) {
         throw error;
       }

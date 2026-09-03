@@ -23,8 +23,9 @@ import {
   getApiKey,
   getLlmApiKey,
   getSpeechApiKey,
-  setLlmApiKey,
+  getTextProviderApiKey,
   setSpeechApiKey,
+  setTextProviderApiKey,
 } from '../src/platform/secure.ts';
 import { LADDER_DAYS, isOwned, nextReview } from '../src/core/scheduler.ts';
 import {
@@ -45,10 +46,20 @@ import {
   normalizeServiceRegion,
   normalizeVoiceMode,
 } from '../src/speech/profiles.ts';
+import {
+  defaultTextProviderId,
+  getTextProviderProfile,
+  normalizeTextProviderId,
+} from '../src/llm/profiles.ts';
 
 const KEY = 'sayable.v1';
 const WEEK = 7 * 864e5;
 const DEFAULT_PROFILE = getServiceProfile(DEFAULT_SERVICE_REGION);
+const DEFAULT_TEXT_PROVIDER_ID = defaultTextProviderId(DEFAULT_SERVICE_REGION);
+const DEFAULT_TEXT_PROVIDER = getTextProviderProfile(
+  DEFAULT_TEXT_PROVIDER_ID,
+  DEFAULT_SERVICE_REGION,
+);
 
 /* 间隔阶梯：天。box 5 = 毕业候选 */
 export const LADDER = [...LADDER_DAYS];
@@ -69,13 +80,14 @@ export const state = {
   settings: {
     providerMode: 'profile',
     serviceRegion: DEFAULT_SERVICE_REGION,
+    textProviderId: DEFAULT_TEXT_PROVIDER_ID,
     voiceMode: DEFAULT_VOICE_MODE,
     onboardingValidationVersion: 0,
     baseUrl: '',
     apiKey: '',          // 仅驻留内存；持久化时剔除，原生端写入 Keystore
     speechApiKey: '',    // 与 LLM Key 分开存放，可按区域独立切换
     model: '',
-    protocol: DEFAULT_PROFILE.llm.protocol,
+    protocol: DEFAULT_TEXT_PROVIDER.protocol,
     ttsVoice: DEFAULT_PROFILE.speech.defaultVoice,
     remindAt: '21:30',
     notificationsEnabled: false,
@@ -120,13 +132,18 @@ function hydrate(d) {
   state.settings.serviceRegion = normalizeServiceRegion(state.settings.serviceRegion);
   state.settings.voiceMode = normalizeVoiceMode(state.settings.voiceMode);
   if (state.settings.providerMode !== 'custom') {
-    const profile = getServiceProfile(state.settings.serviceRegion);
+    const textProvider = getTextProviderProfile(
+      state.settings.textProviderId,
+      state.settings.serviceRegion,
+    );
     Object.assign(state.settings, {
       providerMode: 'profile',
+      textProviderId: textProvider.id,
       baseUrl: '',
       model: '',
-      protocol: profile.llm.protocol,
-      ttsVoice: state.settings.ttsVoice || profile.speech.defaultVoice,
+      protocol: textProvider.protocol,
+      ttsVoice: state.settings.ttsVoice
+        || getServiceProfile(state.settings.serviceRegion).speech.defaultVoice,
     });
   }
   state.items = Array.isArray(d?.items) ? d.items : [];
@@ -170,10 +187,15 @@ export async function load() {
 
   const region = normalizeServiceRegion(state.settings.serviceRegion);
   const legacyKey = data?.settings?.apiKey || await getApiKey();
-  let llmApiKey = await getLlmApiKey(region);
-  if (!llmApiKey && legacyKey) {
-    await setLlmApiKey(region, legacyKey);
-    llmApiKey = legacyKey;
+  const credentialId = state.settings.providerMode === 'custom'
+    ? `custom-${region}`
+    : normalizeTextProviderId(state.settings.textProviderId, region);
+  let llmApiKey = await getTextProviderApiKey(credentialId);
+  const regionalKey = await getLlmApiKey(region);
+  const keyToMigrate = legacyKey || regionalKey;
+  if (!llmApiKey && keyToMigrate) {
+    await setTextProviderApiKey(credentialId, keyToMigrate);
+    llmApiKey = keyToMigrate;
   }
   if (legacyKey) await clearApiKey();
   state.settings.apiKey = llmApiKey;
@@ -218,7 +240,10 @@ export async function importJSON(txt) {
   if (!d || !Array.isArray(d.items)) throw new Error('格式不对');
   hydrate(migratePersistedState(d));
   const region = normalizeServiceRegion(state.settings.serviceRegion);
-  state.settings.apiKey = await getLlmApiKey(region);
+  const credentialId = state.settings.providerMode === 'custom'
+    ? `custom-${region}`
+    : normalizeTextProviderId(state.settings.textProviderId, region);
+  state.settings.apiKey = await getTextProviderApiKey(credentialId);
   state.settings.speechApiKey = await getSpeechApiKey(region);
   await save();
 }
@@ -226,14 +251,22 @@ export async function importJSON(txt) {
 export async function setProviderConfig(config) {
   const region = normalizeServiceRegion(config.serviceRegion || state.settings.serviceRegion);
   const providerMode = config.providerMode === 'custom' ? 'custom' : 'profile';
-  const profile = getServiceProfile(region);
-  await setLlmApiKey(region, config.apiKey || '');
+  const textProviderId = normalizeTextProviderId(
+    config.textProviderId || state.settings.textProviderId,
+    region,
+  );
+  const textProvider = getTextProviderProfile(textProviderId, region);
+  const credentialId = providerMode === 'custom'
+    ? `custom-${region}`
+    : textProviderId;
+  await setTextProviderApiKey(credentialId, config.apiKey || '');
   const next = {
     providerMode,
     serviceRegion: region,
+    textProviderId,
     apiKey: (config.apiKey || '').trim(),
     protocol: providerMode === 'profile'
-      ? profile.llm.protocol
+      ? textProvider.protocol
       : (config.protocol || 'chat_completions'),
   };
   if (providerMode === 'custom') {
@@ -251,17 +284,53 @@ export async function setProviderConfig(config) {
 export async function setServiceRegion(value) {
   const region = normalizeServiceRegion(value);
   const profile = getServiceProfile(region);
+  const textProviderId = defaultTextProviderId(region);
+  const textProvider = getTextProviderProfile(textProviderId, region);
   Object.assign(state.settings, {
     providerMode: 'profile',
     serviceRegion: region,
+    textProviderId,
     baseUrl: '',
     model: '',
-    protocol: profile.llm.protocol,
+    protocol: textProvider.protocol,
     ttsVoice: profile.speech.defaultVoice,
-    apiKey: await getLlmApiKey(region),
+    apiKey: await getTextProviderApiKey(textProviderId),
     speechApiKey: await getSpeechApiKey(region),
   });
   await save();
+}
+
+export async function setTextProvider(value) {
+  const region = normalizeServiceRegion(state.settings.serviceRegion);
+  const textProvider = getTextProviderProfile(value, region);
+  Object.assign(state.settings, {
+    providerMode: 'profile',
+    textProviderId: textProvider.id,
+    baseUrl: '',
+    model: '',
+    protocol: textProvider.protocol,
+    apiKey: await getTextProviderApiKey(textProvider.id),
+    supportsJsonMode: null,
+  });
+  await save();
+}
+
+export function savedTextProviderApiKey(
+  value,
+  serviceRegion = state.settings.serviceRegion,
+) {
+  const region = normalizeServiceRegion(serviceRegion);
+  const providerId = normalizeTextProviderId(value, region);
+  return getTextProviderApiKey(providerId);
+}
+
+export function savedCustomProviderApiKey(value) {
+  const region = normalizeServiceRegion(value);
+  return getTextProviderApiKey(`custom-${region}`);
+}
+
+export function savedSpeechApiKey(value) {
+  return getSpeechApiKey(normalizeServiceRegion(value));
 }
 
 export async function setSpeechConfig(config) {
@@ -288,11 +357,14 @@ export function activeProviderConfig() {
       model: state.settings.model,
     };
   }
-  const profile = activeServiceProfile();
+  const profile = getTextProviderProfile(
+    state.settings.textProviderId,
+    state.settings.serviceRegion,
+  );
   return {
-    protocol: profile.llm.protocol,
-    baseUrl: profile.llm.baseUrl,
-    model: profile.llm.defaultModel,
+    protocol: profile.protocol,
+    baseUrl: profile.baseUrl,
+    model: profile.defaultModel,
   };
 }
 

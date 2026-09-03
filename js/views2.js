@@ -21,6 +21,12 @@ import {
   initialOnboardingRegion,
 } from '../src/speech/profiles.ts';
 import {
+  defaultTextProviderId,
+  getTextProviderProfile,
+  normalizeTextProviderId,
+  textProvidersForRegion,
+} from '../src/llm/profiles.ts';
+import {
   createCompressionRecord,
   normalizeCompressionRecord,
 } from '../src/core/compressions.ts';
@@ -478,6 +484,15 @@ export function profileSheet() {
 }
 
 /* ---------------------------------------------------------------- 首启接入 */
+function providerOptionsHTML(region, selectedId) {
+  if (!region) return '<option value="">请先选择服务区域</option>';
+  return textProvidersForRegion(region)
+    .map(provider => (
+      `<option value="${provider.id}" ${provider.id === selectedId ? 'selected' : ''}>${esc(provider.label)}</option>`
+    ))
+    .join('');
+}
+
 export function onboardingSheet(onReady) {
   const s = S.state.settings;
   let serviceRegion = initialOnboardingRegion(
@@ -485,6 +500,11 @@ export function onboardingSheet(onReady) {
     s.speechApiKey,
     s.serviceRegion,
   );
+  let textProviderId = serviceRegion
+    ? normalizeTextProviderId(s.textProviderId, serviceRegion)
+    : '';
+  let savedLlmApiKey = serviceRegion === s.serviceRegion ? s.apiKey : '';
+  let savedSpeechApiKey = serviceRegion === s.serviceRegion ? s.speechApiKey : '';
   openSheet('连接模型与语音', `
     <p class="sub zh" style="margin-bottom:14px">选择当前网络区域，分别填写模型与语音凭证。两项服务验证成功后才能进入；Key 只写入系统安全存储。</p>
     <label class="fld"><span>服务区域</span>
@@ -493,32 +513,84 @@ export function onboardingSheet(onReady) {
         <button type="button" data-region="global" class="${serviceRegion === 'global' ? 'on' : ''}">海外</button>
       </div>
     </label>
-    <label class="fld"><span>模型 API Key</span><input type="password" id="ob-key" autocomplete="off" autocapitalize="none" spellcheck="false" placeholder="${s.apiKey ? '已安全保存；留空表示不修改' : '输入模型 API Key'}" /></label>
-    <label class="fld"><span>语音 API Key</span><input type="password" id="ob-speech-key" autocomplete="off" autocapitalize="none" spellcheck="false" placeholder="${s.speechApiKey ? '已安全保存；留空表示不修改' : '输入语音 API Key'}" /></label>
+    <label class="fld"><span>文本模型服务</span>
+      <select id="ob-provider" ${serviceRegion ? '' : 'disabled'}>${providerOptionsHTML(serviceRegion, textProviderId)}</select>
+    </label>
+    <label class="fld"><span id="ob-key-label">${serviceRegion ? `${esc(getTextProviderProfile(textProviderId, serviceRegion).label)} API Key` : '模型 API Key'}</span>
+      <input type="password" id="ob-key" autocomplete="off" autocapitalize="none" spellcheck="false" placeholder="${savedLlmApiKey ? '已安全保存；留空表示不修改' : '输入模型 API Key'}" />
+      <small id="ob-key-help">${serviceRegion ? esc(getTextProviderProfile(textProviderId, serviceRegion).keyHelp) : '选择区域后显示可用的文本模型服务。'}</small>
+    </label>
+    <label class="fld"><span id="ob-speech-key-label">${serviceRegion ? `${esc(getServiceProfile(serviceRegion).speech.label)} API Key` : '语音 API Key'}</span>
+      <input type="password" id="ob-speech-key" autocomplete="off" autocapitalize="none" spellcheck="false" placeholder="${savedSpeechApiKey ? '已安全保存；留空表示不修改' : serviceRegion ? esc(getServiceProfile(serviceRegion).speech.keyPlaceholder) : '输入语音 API Key'}" />
+      <small id="ob-speech-key-help">${serviceRegion ? esc(getServiceProfile(serviceRegion).speech.keyHelp) : '选择区域后显示对应的语音服务。'}</small>
+    </label>
     <button class="btn btn-pri btn-blk" id="ob-test">全部测试并进入</button>
     <p class="tiny zh" id="ob-result" aria-live="polite" style="margin-top:10px">模型与语音通常使用不同的 Key；语音 Key 同时用于 ASR 和 TTS。</p>`, () => {
-    $$('#ob-region [data-region]').forEach(button => button.addEventListener('click', () => {
+    const updateProviderFields = async () => {
+      const select = $('#ob-provider');
+      if (!serviceRegion) {
+        select.disabled = true;
+        select.innerHTML = providerOptionsHTML('', '');
+        return;
+      }
+      textProviderId = normalizeTextProviderId(
+        textProviderId || defaultTextProviderId(serviceRegion),
+        serviceRegion,
+      );
+      const provider = getTextProviderProfile(textProviderId, serviceRegion);
+      const speech = getServiceProfile(serviceRegion).speech;
+      select.disabled = false;
+      select.innerHTML = providerOptionsHTML(serviceRegion, textProviderId);
+      savedLlmApiKey = await S.savedTextProviderApiKey(
+        textProviderId,
+        serviceRegion,
+      );
+      savedSpeechApiKey = await S.savedSpeechApiKey(serviceRegion);
+      $('#ob-key').value = '';
+      $('#ob-key').placeholder = savedLlmApiKey
+        ? '已安全保存；留空表示不修改'
+        : provider.keyPlaceholder;
+      $('#ob-key-label').textContent = `${provider.label} API Key`;
+      $('#ob-key-help').textContent = provider.keyHelp;
+      $('#ob-speech-key').value = '';
+      $('#ob-speech-key').placeholder = savedSpeechApiKey
+        ? '已安全保存；留空表示不修改'
+        : speech.keyPlaceholder;
+      $('#ob-speech-key-label').textContent = `${speech.label} API Key`;
+      $('#ob-speech-key-help').textContent = speech.keyHelp;
+    };
+    $$('#ob-region [data-region]').forEach(button => button.addEventListener('click', async () => {
       serviceRegion = button.dataset.region;
+      textProviderId = serviceRegion === s.serviceRegion && s.textProviderId
+        ? normalizeTextProviderId(s.textProviderId, serviceRegion)
+        : defaultTextProviderId(serviceRegion);
       $$('#ob-region [data-region]').forEach(item => item.classList.toggle(
         'on',
         item.dataset.region === serviceRegion,
       ));
+      await updateProviderFields();
     }));
+    $('#ob-provider').addEventListener('change', async (event) => {
+      textProviderId = normalizeTextProviderId(event.target.value, serviceRegion);
+      await updateProviderFields();
+    });
     $('#ob-test').addEventListener('click', async () => {
-      const llmApiKey = $('#ob-key').value.trim() || s.apiKey;
-      const speechApiKey = $('#ob-speech-key').value.trim() || s.speechApiKey;
       if (!serviceRegion) {
         toast('请选择服务区域');
         return;
       }
-      const profile = getServiceProfile(serviceRegion);
+      const textProvider = getTextProviderProfile(textProviderId, serviceRegion);
+      const speechProfile = getServiceProfile(serviceRegion);
+      const llmApiKey = $('#ob-key').value.trim() || savedLlmApiKey;
+      const speechApiKey = $('#ob-speech-key').value.trim() || savedSpeechApiKey;
       const config = {
         providerMode: 'profile',
         serviceRegion,
-        protocol: profile.llm.protocol,
-        baseUrl: profile.llm.baseUrl,
+        textProviderId: textProvider.id,
+        protocol: textProvider.protocol,
+        baseUrl: textProvider.baseUrl,
         apiKey: llmApiKey,
-        model: profile.llm.defaultModel,
+        model: textProvider.defaultModel,
       };
       if (!hasRequiredCredentials(llmApiKey, speechApiKey)) {
         toast('请填写模型和语音两个 API Key');
@@ -535,7 +607,7 @@ export function onboardingSheet(onReady) {
         result.textContent = '文本模型已连接，正在验证 ASR 和 TTS…';
         result.style.color = 'var(--fg-2)';
         button.textContent = '正在验证语音…';
-        await SP.testCloudSpeech(profile, speechApiKey);
+        await SP.testCloudSpeech(speechProfile, speechApiKey);
 
         S.state.settings.supportsJsonMode = probe.supportsJsonMode;
         await S.setProviderConfig(config);
@@ -543,7 +615,7 @@ export function onboardingSheet(onReady) {
           serviceRegion,
           voiceMode: 'cloud',
           apiKey: speechApiKey,
-          ttsVoice: profile.speech.defaultVoice,
+          ttsVoice: speechProfile.speech.defaultVoice,
         });
         S.state.settings.onboardingValidationVersion = 1;
         S.state.settings.onboarded = true;
@@ -569,8 +641,9 @@ export function settingsSheet(onChange) {
   const s = S.state.settings;
   const usage = S.llmUsage();
   const region = s.serviceRegion || 'cn';
-  const profile = getServiceProfile(region);
-  const profileLabel = profile.label;
+  const speechProfile = getServiceProfile(region);
+  const textProvider = getTextProviderProfile(s.textProviderId, region);
+  const profileLabel = `${speechProfile.label} · ${textProvider.label}`;
   openSheet('设置', `
     <div class="card ${S.isLive() ? 'acc' : 'warm'}" style="margin-bottom:16px">
       <p class="zh" style="font-weight:600">${S.isLive() ? '模型已接入' : '尚未接入模型'}</p>
@@ -585,7 +658,13 @@ export function settingsSheet(onChange) {
         <button type="button" data-region="global" class="${region === 'global' ? 'on' : ''}">海外</button>
       </div>
     </label>
-    <label class="fld"><span>模型 API Key</span><input type="password" id="s-key" value="" autocomplete="off" placeholder="${s.apiKey ? '已安全保存；留空表示不修改' : '输入 API Key'}" /></label>
+    <label class="fld"><span>文本模型服务</span>
+      <select id="s-provider" ${s.providerMode === 'custom' ? 'disabled' : ''}>${providerOptionsHTML(region, textProvider.id)}</select>
+    </label>
+    <label class="fld"><span id="s-key-label">${s.providerMode === 'custom' ? '自定义服务' : esc(textProvider.label)} API Key</span>
+      <input type="password" id="s-key" value="" autocomplete="off" placeholder="${s.apiKey ? '已安全保存；留空表示不修改' : textProvider.keyPlaceholder}" />
+      <small id="s-key-help">${s.providerMode === 'custom' ? '使用自定义接入点对应的 API Key。' : esc(textProvider.keyHelp)}</small>
+    </label>
     <details class="advanced" ${s.providerMode === 'custom' ? 'open' : ''}>
       <summary>高级模型配置</summary>
       <label class="toggle-row"><span><b>覆盖区域默认值</b><small>只用于自定义兼容接入点</small></span>
@@ -609,7 +688,10 @@ export function settingsSheet(onChange) {
       </div>
     </label>
     <div id="s-cloud-fields" ${s.voiceMode === 'cloud' ? '' : 'hidden'}>
-      <label class="fld"><span>语音 API Key</span><input type="password" id="s-speech-key" value="" autocomplete="off" placeholder="${s.speechApiKey ? '已安全保存；留空表示不修改' : '输入语音服务 API Key'}" /></label>
+      <label class="fld"><span>${esc(speechProfile.speech.label)} API Key</span>
+        <input type="password" id="s-speech-key" value="" autocomplete="off" placeholder="${s.speechApiKey ? '已安全保存；留空表示不修改' : esc(speechProfile.speech.keyPlaceholder)}" />
+        <small>${esc(speechProfile.speech.keyHelp)}</small>
+      </label>
       <button class="btn btn-sm btn-ghost btn-blk" id="s-test-speech">试听云端语音</button>
       <p class="tiny zh" id="s-speech-result" style="margin-top:8px">录音仅在识别时发送，不写入数据库或备份。</p>
     </div>
@@ -644,12 +726,37 @@ export function settingsSheet(onChange) {
     <div class="sec" style="margin-top:20px"><span class="eyebrow">关于</span><hr/></div>
     <p class="tiny zh" style="margin-top:9px">MVP 请求从本机直达当前区域服务，不经过说得出的服务器；学习数据只保存在本机。</p>`, () => {
     let voiceMode = s.voiceMode === 'cloud' ? 'cloud' : 'system';
+    let selectedTextProviderId = textProvider.id;
+    let savedLlmApiKey = s.apiKey;
+    const updateTextProviderFields = async () => {
+      const custom = $('#s-custom').checked;
+      const provider = getTextProviderProfile(selectedTextProviderId, region);
+      $('#s-provider').disabled = custom;
+      savedLlmApiKey = custom
+        ? await S.savedCustomProviderApiKey(region)
+        : await S.savedTextProviderApiKey(provider.id, region);
+      $('#s-key').value = '';
+      $('#s-key').placeholder = savedLlmApiKey
+        ? '已安全保存；留空表示不修改'
+        : custom
+          ? '输入自定义服务 API Key'
+          : provider.keyPlaceholder;
+      $('#s-key-label').textContent = `${custom ? '自定义服务' : provider.label} API Key`;
+      $('#s-key-help').textContent = custom
+        ? '使用自定义接入点对应的 API Key。'
+        : provider.keyHelp;
+    };
     $$('#s-region [data-region]').forEach(button => button.addEventListener('click', async () => {
       if (button.dataset.region === S.state.settings.serviceRegion) return;
       await S.setServiceRegion(button.dataset.region);
       settingsSheet(onChange);
       onChange?.();
     }));
+    $('#s-provider').addEventListener('change', async (event) => {
+      selectedTextProviderId = normalizeTextProviderId(event.target.value, region);
+      await updateTextProviderFields();
+    });
+    $('#s-custom').addEventListener('change', updateTextProviderFields);
     $$('#s-voice-mode [data-mode]').forEach(button => button.addEventListener('click', () => {
       voiceMode = button.dataset.mode;
       $$('#s-voice-mode [data-mode]').forEach(item => item.classList.toggle(
@@ -660,20 +767,22 @@ export function settingsSheet(onChange) {
     }));
     const readConfig = () => {
       const custom = $('#s-custom').checked;
+      const provider = getTextProviderProfile(selectedTextProviderId, region);
       return {
         providerMode: custom ? 'custom' : 'profile',
         serviceRegion: region,
-        baseUrl: custom ? $('#s-url').value.trim() : profile.llm.baseUrl,
-        apiKey: $('#s-key').value.trim() || s.apiKey,
-        model: custom ? $('#s-mdl').value.trim() : profile.llm.defaultModel,
-        protocol: custom ? $('#s-proto').value : profile.llm.protocol,
+        textProviderId: provider.id,
+        baseUrl: custom ? $('#s-url').value.trim() : provider.baseUrl,
+        apiKey: $('#s-key').value.trim() || savedLlmApiKey,
+        model: custom ? $('#s-mdl').value.trim() : provider.defaultModel,
+        protocol: custom ? $('#s-proto').value : provider.protocol,
       };
     };
     const readSpeechConfig = () => ({
       serviceRegion: region,
       voiceMode,
       apiKey: $('#s-speech-key').value.trim() || s.speechApiKey,
-      ttsVoice: s.ttsVoice || profile.speech.defaultVoice,
+      ttsVoice: s.ttsVoice || speechProfile.speech.defaultVoice,
     });
     const persistForm = async () => {
       const wasEnabled = !!S.state.settings.notificationsEnabled;
@@ -739,7 +848,7 @@ export function settingsSheet(onChange) {
       button.disabled = true;
       button.textContent = '正在生成…';
       try {
-        await SP.testCloudSpeech(profile, config.apiKey);
+        await SP.testCloudSpeech(speechProfile, config.apiKey);
         await S.setSpeechConfig({ ...config, voiceMode: 'cloud' });
         result.textContent = 'ASR 鉴权与云端朗读连接成功';
         result.style.color = 'var(--acc)';
