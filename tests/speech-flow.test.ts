@@ -115,4 +115,21 @@ describe('speech input lifecycle', () => {
     expect(analysisHandler).toContain('micButton.disabled = true;');
     expect(analysisHandler).toContain('ta.readOnly = true;');
   });
+
+  it('locks the practice input and clears recording state before judging', () => {
+    const source = readFileSync('js/views.js', 'utf8');
+    const drillView = source.slice(
+      source.indexOf('export function drillCard'),
+      source.indexOf('export function viewHome'),
+    );
+    const submitHandler = drillView.slice(
+      drillView.indexOf("'-go')?.addEventListener('click'"),
+      drillView.indexOf('function finish'),
+    );
+
+    expect(submitHandler.indexOf("lockInput('is-submitting');"))
+      .toBeLessThan(submitHandler.indexOf('await L.judge'));
+    expect(drillView).toContain("micButton?.classList.remove('rec')");
+    expect(drillView).toContain('ta.readOnly = true;');
+  });
 });

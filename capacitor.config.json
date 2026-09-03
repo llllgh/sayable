@@ -4,7 +4,7 @@
   "webDir": "www",
   "android": {
     "allowMixedContent": false,
-    "backgroundColor": "#06080C",
+    "backgroundColor": "#F6F7F8",
     "loggingBehavior": "none"
   },
   "plugins": {

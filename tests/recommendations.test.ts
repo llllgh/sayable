@@ -138,7 +138,8 @@ describe('daily recommendations', () => {
     expect(view).toContain("srcKind: 'recommendation'");
     expect(view).toContain('drillCard(item');
     expect(view).toContain('markRecommendationPracticed');
-    expect(view).toContain('今天的推荐都练完了');
+    expect(view).toContain('今日推荐已完成');
+    expect(view).toContain("go('home')");
     expect(view).not.toContain('继续深入练习');
   });
 });

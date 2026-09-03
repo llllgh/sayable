@@ -1,6 +1,6 @@
 {
   "name": "sayable",
-  "version": "0.2.4",
+  "version": "0.3.1",
   "private": true,
   "type": "module",
   "description": "An offline-first personal English expression trainer.",

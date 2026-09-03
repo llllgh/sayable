@@ -32,6 +32,7 @@ const EMPTY_PROFILE = {
   scenarios: [],
   upcoming: '',
   variety: 'international',
+  englishLevel: null,
 };
 
 function isRecord(value: unknown): value is JsonRecord {

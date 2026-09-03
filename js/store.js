@@ -58,7 +58,7 @@ export const state = {
   profile: {
     name: '', role: '', org: '', goal: '',
     domains: [], counterparts: [], scenarios: [], upcoming: '',
-    variety: 'international',
+    variety: 'international', englishLevel: null,
   },
   items: [],
   inbox: [],            // 闪存：只存原文，不分析、不联网、不问问题

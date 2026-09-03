@@ -32,6 +32,7 @@ import {
   normalizeJudgementText,
   resolveJudgement,
 } from '../src/core/judgement.ts';
+import { englishLevelLabel } from '../src/core/english-level.ts';
 import { isOnline } from '../src/platform/network.ts';
 
 export { LlmError, userMessage };
@@ -52,6 +53,9 @@ function profileBlock() {
     p.counterparts?.length && `主要说英语的对象：${p.counterparts.join('、')}`,
     p.scenarios?.length && `高频真实场景：${p.scenarios.join('、')}`,
     p.upcoming && `近期要面对的事：${p.upcoming}`,
+    p.englishLevel?.cefr && `英语水平：${englishLevelLabel(p.englishLevel)}${
+      p.englishLevel.approximate ? '（仅用于难度适配的近似换算）' : ''
+    }`,
     `英语变体偏好：${p.variety || 'international'}`,
   ].filter(Boolean).join('\n');
 }
@@ -76,7 +80,8 @@ const SYS = `你是一名专门服务「被动词汇量很大、主动调用通�
 6. 口语版必须真的能一口气说完（约 15 秒 / 25~35 词以内）。
 7. 立刻练习题：只给交际功能和场景，**绝不能在题目里出现目标骨架本身或它的完整答案**。
 8. 不得虚构用户未提供的项目、平台、人员、故障或业务事实；上下文不足时使用中性的 X / Y / Z 占位信息。
-9. 全部 JSON 输出，不要 markdown 代码块，不要多余解释。中文字段用中文，英文字段用英文。`;
+9. 若画像提供了 CEFR 等级，表达长度、词汇和句法复杂度必须适应该等级；优先提供学习者能立即说出口的高频结构，不得为了显得高级而使用超纲词汇。
+10. 全部 JSON 输出，不要 markdown 代码块，不要多余解释。中文字段用中文，英文字段用英文。`;
 
 const SCHEMA_HINT = `严格按此 JSON 结构输出：
 {
@@ -293,7 +298,7 @@ export async function recommendDaily() {
 
 本次任务是生成一副“今日推荐”牌组。严格遵守：
 1. 固定给 5 个不同的可复用表达骨架，每个都带 X / Y / Z 槽位或稳定交际功能。
-2. 优先依据学习者的岗位、学习目的、沟通对象、真实场景和他过去自己造过的句子；资料不足时使用中性职业场景，不虚构项目、公司、客户或结论。
+2. 优先依据学习者的岗位、学习目的、沟通对象、真实场景、CEFR 英语水平和他过去自己造过的句子；资料不足时使用中性职业场景，不虚构项目、公司、客户或结论。
 3. 5 个表达必须覆盖不同交际功能，且不能与已有骨架重复或只是换词改写。
 4. 只选务实母语者在会议、邮件或日常协作中真的会说的高频结构。禁止 AI 味、教科书味、低频俚语和花哨表达，包括 ${BLACKLIST.map(item => `"${item}"`).join('、')}。
 5. example 是一条完整、自然、可直接朗读的英文例句；drill 是中文造句任务，只描述意图和场景，不得泄露目标骨架。

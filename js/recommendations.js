@@ -11,7 +11,7 @@ import {
   thinking,
   toast,
 } from './ui.js';
-import { drillCard } from './views.js';
+import { drillCard, go } from './views.js';
 import {
   recommendationKey,
   recommendationProgress,
@@ -62,12 +62,12 @@ async function generateDeck() {
 }
 
 function headerHTML() {
-  return `<div class="row" style="align-items:flex-start">
-    <div class="grow">
+  return `<div class="page-head">
+    <div class="page-head-copy">
       <h1 class="h-lg zh">今日推荐</h1>
-      <p class="sub zh" style="margin-top:6px">从你的工作语境和过往表达里，挑一张今天值得练的。</p>
+      <p class="sub zh">选择一个表达开始练习。</p>
     </div>
-    <button class="btn btn-sm btn-ghost" id="recommend-profile">调整画像</button>
+    <button class="btn btn-sm btn-ghost" id="recommend-profile">学习偏好</button>
   </div>`;
 }
 
@@ -151,11 +151,14 @@ function mountPractice(app, recommendation) {
       const progress = nextDeck
         ? recommendationProgress(nextDeck)
         : null;
-      toast(progress?.remaining
-        ? `完成一条 · 今天还剩 ${progress.remaining} 条`
-        : '今天的推荐都练完了');
+      if (!progress?.remaining) {
+        toast('今日推荐已完成');
+        go('home');
+        return;
+      }
+      toast(`已完成，今天还剩 ${progress.remaining} 个`);
       renderDeck(app, nextDeck || S.todayRecommendationDeck());
-      $('#recommend-card, .recommendation-complete')?.scrollIntoView({
+      $('#recommend-card')?.scrollIntoView({
         behavior: 'smooth',
         block: 'center',
       });
@@ -174,19 +177,21 @@ function renderComplete(app, deck) {
   app.innerHTML = `<div class="view stack recommendation-view">
     ${headerHTML()}
     <div class="recommendation-meta">
-      <span class="eyebrow" style="color:var(--acc)">今日完成</span>
-      <span class="chip acc">已练 ${progress.completed} / ${progress.total}</span>
+      <span class="eyebrow">今日进度</span>
+      <span class="chip acc">${progress.completed} / ${progress.total}</span>
     </div>
     <section class="recommendation-complete" role="status">
       <div class="recommendation-complete-icon" aria-hidden="true">✓</div>
-      <h2 class="zh">今天的推荐都练完了</h2>
-      <p class="zh">你认真完成了 ${progress.total} 个表达，并把它们放进了后续复习队列。今天学得很扎实，可以收工了。</p>
+      <h2 class="zh">今日推荐已完成</h2>
+      <p class="zh">${progress.total} 个表达已加入后续复习。</p>
+      <button class="btn btn-pri" id="recommend-home" style="margin-top:16px">返回今天</button>
     </section>
   </div>`;
   $('#recommend-profile').addEventListener(
     'click',
     () => $('#btn-profile')?.click(),
   );
+  $('#recommend-home').addEventListener('click', () => go('home'));
 }
 
 function renderDeck(app, deck) {
@@ -214,18 +219,18 @@ function renderDeck(app, deck) {
     && S.getItem(recommendation.collectedItemId),
   );
   const practiceLabel = isCollected
-    ? '继续完成今日练习'
+    ? '继续练习'
     : existing
-      ? '开始今日练习'
+      ? '开始练习'
       : S.budgetLeft()
-        ? '收编并开始练习'
-        : '替换一条并开始练习';
+        ? '加入句库并练习'
+        : '替换后开始练习';
 
   app.innerHTML = `<div class="view stack recommendation-view">
     ${headerHTML()}
     <div class="recommendation-meta">
-      <span class="eyebrow" style="color:var(--warm)">今日抽卡</span>
-      <span class="chip ${progress.completed ? 'acc' : ''}">已练 ${progress.completed} · 待练 ${progress.remaining}</span>
+      <span class="eyebrow">今日进度</span>
+      <span class="chip ${progress.completed ? 'acc' : ''}">${progress.completed} / ${progress.total}</span>
     </div>
 
     <article class="recommendation-card" id="recommend-card" aria-live="polite" tabindex="0">
@@ -250,7 +255,7 @@ function renderDeck(app, deck) {
       </div>
 
       <div class="recommendation-fit">
-        <span class="eyebrow">为什么是这张</span>
+        <span class="eyebrow">适用场景</span>
         <p class="zh">${esc(recommendation.why)}</p>
       </div>
     </article>
@@ -351,7 +356,7 @@ async function loadRecommendations(app) {
 
   app.innerHTML = `<div class="view stack recommendation-view">
     ${headerHTML()}
-    ${thinking('正在从你的场景里挑选今天的表达')}
+    ${thinking('正在生成今日推荐')}
   </div>`;
   $('#recommend-profile').addEventListener(
     'click',

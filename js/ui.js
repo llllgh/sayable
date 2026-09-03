@@ -72,7 +72,7 @@ export function ladderHTML(box, owned, { labeled = false } = {}) {
   return `<span class="ladder-status" aria-label="复习阶梯 ${step} / 5"><span class="ladder-label">复习阶梯 ${step} / 5</span>${bars}</span>`;
 }
 export const srcPill = (kind) => {
-  const m = { heard: ['听到的', 'src-heard'], fragment: ['听到的', 'src-heard'], mine: ['改我的', 'src-mine'], compress: ['压缩台', 'src-mine'], zh: ['中译英', 'src-zh'], preflight: ['会前', 'src-zh'], recommendation: ['推荐', 'src-recommendation'] };
+  const m = { heard: ['听到的', 'src-heard'], fragment: ['听到的', 'src-heard'], mine: ['我的原句', 'src-mine'], compress: ['精简', 'src-mine'], zh: ['中译英', 'src-zh'], preflight: ['会前准备', 'src-zh'], recommendation: ['今日推荐', 'src-recommendation'] };
   const [t, c] = m[kind] || ['—', 'src-zh'];
   return `<span class="pill-src ${c}">${t}</span>`;
 };

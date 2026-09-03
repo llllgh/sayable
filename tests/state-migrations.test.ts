@@ -105,6 +105,7 @@ describe('persisted state migration', () => {
       scenarios: [],
       upcoming: '',
       variety: 'international',
+      englishLevel: null,
     });
     expect(migrated.items).toEqual([userItem]);
     expect(migrated.inbox).toEqual([{ id: 'user-inbox', source: 'app', text: 'mine' }]);

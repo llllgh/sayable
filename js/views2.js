@@ -24,6 +24,10 @@ import {
   createCompressionRecord,
   normalizeCompressionRecord,
 } from '../src/core/compressions.ts';
+import {
+  englishLevelLabel,
+  normalizeEnglishLevel,
+} from '../src/core/english-level.ts';
 
 /* ---------------------------------------------------------------- 压缩台 */
 const compressionPatternKey = (value) => String(value || '')
@@ -49,9 +53,11 @@ export function viewCompress(app) {
     : 0;
 
   app.innerHTML = `<div class="view stack">
-    <div>
-      <h1 class="h-lg zh">压缩台</h1>
-      <p class="sub zh" style="margin-top:6px">说完一段 30 秒的话，这里保留你的逻辑、压成 15 秒，并告诉你「删掉的那部分为什么英语里可以不说」。</p>
+    <div class="page-head">
+      <div class="page-head-copy">
+        <h1 class="h-lg zh">精简表达</h1>
+        <p class="sub zh">保留重点，把一段话压缩到 15 秒。</p>
+      </div>
     </div>
 
     ${history.length ? `<div class="metrics">
@@ -59,16 +65,16 @@ export function viewCompress(app) {
       <div class="metric violet"><div class="n">${history.length}</div><div class="k">压缩过的段落</div></div>
     </div>` : ''}
 
-    <div class="card">
+    <div class="card" id="compression-input">
       <div class="row" style="align-items:flex-start">
-        <textarea class="grow" id="cp" rows="7" placeholder="按住麦克风，把你刚才想说（或刚说得不满意）的一整段说出来。中英都行。&#10;&#10;不用组织，越像你平时讲话越好 —— 要修的正是你平时讲话的样子。"></textarea>
-        <button class="mic" id="cp-mic"><svg viewBox="0 0 24 24" class="ic"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5.5 11.5a6.5 6.5 0 0 0 13 0M12 18v3"/></svg></button>
+        <textarea class="grow" id="cp" rows="6" placeholder="输入或说出一段想精简的话，中英文均可。"></textarea>
+        <button class="mic" id="cp-mic" aria-label="开始录音" title="开始录音"><svg viewBox="0 0 24 24" class="ic"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5.5 11.5a6.5 6.5 0 0 0 13 0M12 18v3"/></svg></button>
       </div>
       <div class="row" style="justify-content:space-between;margin-top:10px">
         <span class="chip" id="cp-wc">0 词</span>
-        <span class="tiny zh">目标：压到 35 词以内</span>
+        <span class="tiny zh">建议至少 12 词</span>
       </div>
-      <button class="btn btn-pri btn-blk" id="cp-go" style="margin-top:12px">压缩</button>
+      <button class="btn btn-pri btn-blk" id="cp-go" style="margin-top:12px">开始精简</button>
     </div>
     <div id="cp-out"></div>
 
@@ -89,9 +95,18 @@ export function viewCompress(app) {
 
   const ta = $('#cp');
   const out = $('#cp-out');
+  const micButton = $('#cp-mic');
+  const compressButton = $('#cp-go');
   let rec = false;
+  const stopRecording = () => {
+    rec = false;
+    micButton.classList.remove('rec');
+    micButton.setAttribute('aria-label', '开始录音');
+    SP.stop();
+  };
   const wc = () => { $('#cp-wc').textContent = words(ta.value) + ' 词'; };
   const reuseInput = (value) => {
+    $('#compression-input').hidden = false;
     ta.value = value;
     wc();
     ta.focus({ preventScroll: true });
@@ -100,6 +115,7 @@ export function viewCompress(app) {
   };
 
   const renderCompression = (record, { historical = false } = {}) => {
+    $('#compression-input').hidden = true;
     const lw = record.longWords || words(record.long);
     const sw = record.shortWords || words(record.short);
     const rate = lw
@@ -122,38 +138,47 @@ export function viewCompress(app) {
       : '<p class="dim zh">这条旧记录没有保存可收编的骨架。</p>';
 
     out.innerHTML = `<div class="stack">
-      ${historical ? `<div class="sec"><span class="eyebrow" style="color:var(--violet)">历史记录 · ${record.at ? ago(record.at) : '较早'}</span><hr/></div>` : ''}
+      <div class="page-head">
+        <div class="page-head-copy"><div class="eyebrow">${historical ? `历史记录 · ${record.at ? ago(record.at) : '较早'}` : '精简结果'}</div></div>
+        <button class="btn btn-sm btn-ghost" id="cp-new">重新输入</button>
+      </div>
       <div class="card flat">
         <div class="eyebrow">原始表达</div>
         <p class="en" style="margin-top:7px;font-size:14px;line-height:1.55">${esc(record.long)}</p>
         <div class="row wrap" style="margin-top:12px">
           <button class="btn btn-sm btn-ghost" data-reuse="long">编辑原文</button>
-          <button class="btn btn-sm btn-ghost" data-reuse="short">从 15 秒版继续</button>
+          <button class="btn btn-sm btn-ghost" data-reuse="short">继续精简</button>
         </div>
       </div>
       <div class="card acc">
-        <div class="row" style="justify-content:space-between"><span class="eyebrow" style="color:var(--acc)">15 秒版</span>
+        <div class="row" style="justify-content:space-between"><span class="eyebrow" style="color:var(--acc)">精简结果</span>
           <span class="chip acc">↓ ${rate}% · ${lw} → ${sw} 词</span></div>
         <p class="en" style="font-size:16.5px;margin-top:9px;line-height:1.5">${esc(record.short)} <button class="link" id="cp-say" aria-label="朗读 15 秒版">🔊</button></p>
         <div class="bar" style="margin-top:12px"><i style="width:${rate}%"></i></div>
-        ${record.kept ? `<p class="tiny zh" style="margin-top:9px">✓ ${esc(record.kept)}</p>` : ''}
+        ${record.kept ? `<p class="tiny zh" style="margin-top:9px">${esc(record.kept)}</p>` : ''}
       </div>
 
-      ${record.symptom ? `<div class="card rose"><div class="eyebrow" style="color:var(--rose)">这段话里最主要的啰嗦习惯</div>
+      ${record.symptom ? `<div class="card rose"><div class="eyebrow" style="color:var(--rose)">主要问题</div>
         <p class="zh" style="margin-top:7px;font-weight:600">${esc(record.symptom)}</p></div>` : ''}
 
       ${record.cuts.length ? `<div class="card">
-        <div class="eyebrow">删掉了什么，为什么可以不说</div>
+        <div class="eyebrow">删减说明</div>
         ${record.cuts.map((cut, index) => `<div class="li"><div class="idx">${index + 1}</div><div class="grow">
           <p class="zh" style="font-size:14px;font-weight:600">${esc(cut.what)}</p>
           <p class="tiny zh" style="margin-top:2px">${esc(cut.why)}</p></div></div>`).join('')}
       </div>` : ''}
 
-      <div class="sec" id="cp-patterns"><span class="eyebrow" style="color:var(--acc)">值得长期拥有的骨架</span><hr/></div>
+      <div class="sec" id="cp-patterns"><span class="eyebrow">可加入句库的句型</span><hr/></div>
       ${patternCards}
       <div id="cp-drill"></div>
     </div>`;
 
+    $('#cp-new')?.addEventListener('click', () => {
+      out.innerHTML = '';
+      $('#compression-input').hidden = false;
+      ta.focus({ preventScroll: true });
+      $('#compression-input').scrollIntoView({ behavior: 'smooth', block: 'start' });
+    });
     $('#cp-say')?.addEventListener('click', () => SP.say(record.short));
     $$('[data-reuse]', out).forEach(button => button.addEventListener('click', () => {
       reuseInput(button.dataset.reuse === 'short' ? record.short : record.long);
@@ -198,23 +223,28 @@ export function viewCompress(app) {
   };
 
   ta.addEventListener('input', wc);
-  $('#cp-mic').addEventListener('click', () => {
-    const b = $('#cp-mic');
+  micButton.addEventListener('click', () => {
     if (!SP.canListen()) {
       ta.focus();
       toast('请使用系统键盘上的语音输入');
       return;
     }
-    if (rec) { SP.stop(); rec = false; b.classList.remove('rec'); return; }
-    rec = true; b.classList.add('rec');
+    if (rec) { stopRecording(); return; }
+    rec = true;
+    micButton.classList.add('rec');
+    micButton.setAttribute('aria-label', '停止录音');
     SP.listen({ lang: /[\u4e00-\u9fa5]/.test(ta.value) ? 'zh-CN' : 'en-US', onText: t => { ta.value = t; wc(); },
-      onEnd: () => { rec = false; b.classList.remove('rec'); }, onError: e => { rec = false; b.classList.remove('rec'); toast(e.message); } });
+      onEnd: stopRecording, onError: e => { stopRecording(); toast(e.message); } });
   });
 
-  $('#cp-go').addEventListener('click', async () => {
+  compressButton.addEventListener('click', async () => {
+    stopRecording();
     const text = ta.value.trim();
     if (words(text) < 12) { toast('至少说一段（12 词以上）才有压缩空间'); return; }
     out.innerHTML = thinking('正在保留你的逻辑并压缩');
+    compressButton.disabled = true;
+    micButton.disabled = true;
+    ta.readOnly = true;
     try {
       const result = await L.compress(text);
       const record = createCompressionRecord({
@@ -230,6 +260,10 @@ export function viewCompress(app) {
       renderCompression(record);
     } catch (e) {
       out.innerHTML = `<div class="card rose"><p class="zh sub">${esc(L.userMessage(e))}</p></div>`;
+    } finally {
+      compressButton.disabled = false;
+      micButton.disabled = false;
+      ta.readOnly = false;
     }
   });
 
@@ -245,15 +279,16 @@ export function viewCompress(app) {
 export function viewPreflight(app) {
   const p = S.state.profile;
   app.innerHTML = `<div class="view stack">
-    <div>
-      <h1 class="h-lg zh">会前 3 分钟</h1>
-      <p class="sub zh" style="margin-top:6px">复习最难的不是记忆曲线，是「凭什么现在要复习」。所以把复习放在你真的马上要用它的 30 分钟前 —— 它就从任务变成了工具。</p>
+    <div class="page-head">
+      <div class="page-head-copy">
+        <h1 class="h-lg zh">会前准备</h1>
+        <p class="sub zh">根据会议内容，挑选马上会用到的表达。</p>
+      </div>
     </div>
     <div class="card">
-      <label class="fld"><span>30 分钟后你要开什么会 / 见谁 / 讲什么</span>
-        <textarea id="pf" rows="3" placeholder="填写会议对象、主题和关注点">${esc(p.upcoming || '')}</textarea></label>
-      <button class="btn btn-pri btn-blk" id="pf-go">给我这场会用得上的</button>
-      <p class="tiny zh" style="margin-top:10px">会后回来点一下「我真会用过它」—— 那是唯一能让骨架毕业的证据。</p>
+      <label class="fld"><span>会议对象、主题和关注点</span>
+        <textarea id="pf" rows="3" placeholder="例如：与海外客户确认下周交付计划">${esc(p.upcoming || '')}</textarea></label>
+      <button class="btn btn-pri btn-blk" id="pf-go">生成会前练习</button>
     </div>
     <div id="pf-out"></div>
   </div>`;
@@ -268,22 +303,22 @@ export function viewPreflight(app) {
       const r = await L.preflight(sc, cands);
       const reuse = (r.reuse || []).map(x => ({ ...x, it: S.getItem(x.id) })).filter(x => x.it);
       out.innerHTML = `<div class="stack">
-        ${r.avoid ? `<div class="card rose"><div class="eyebrow" style="color:var(--rose)">这场会最该避免的说法</div>
+        ${r.avoid ? `<div class="card rose"><div class="eyebrow" style="color:var(--rose)">表达提醒</div>
           <p class="zh" style="margin-top:7px">${esc(r.avoid)}</p></div>` : ''}
 
-        <div class="sec"><span class="eyebrow" style="color:var(--acc)">你已经有的 · 现在各说一遍</span><hr/></div>
+        <div class="sec"><span class="eyebrow">句库中的相关表达</span><hr/></div>
         ${reuse.length ? reuse.map((x, k) => `<div class="card">
           <p class="skel en">${skel(x.it.skeleton)} <button class="link" data-say="${x.it.id}">🔊</button></p>
           <p class="zh sub" style="margin-top:4px">${esc(x.it.zh)}</p>
-          <p class="tiny zh" style="margin-top:7px">为什么这场会需要它：${esc(x.reason || '')}</p>
+          <p class="tiny zh" style="margin-top:7px">${esc(x.reason || '')}</p>
           <div class="row" style="margin-top:11px">
-            <button class="btn btn-sm btn-warm grow" data-warm="${k}">现在说一遍</button>
-            <button class="btn btn-sm btn-ghost" data-real="${x.it.id}">会后：用过了</button>
+            <button class="btn btn-sm btn-warm grow" data-warm="${k}">开始练习</button>
+            <button class="btn btn-sm btn-ghost" data-real="${x.it.id}">记录已使用</button>
           </div>
           <div id="pf-d-${k}"></div>
         </div>`).join('') : `<p class="dim zh">句库里还没有跟这场会强相关的骨架。</p>`}
 
-        ${(r.fresh || []).length ? `<div class="sec"><span class="eyebrow" style="color:var(--violet)">这场会专属 · 你还没有的</span><hr/></div>
+        ${(r.fresh || []).length ? `<div class="sec"><span class="eyebrow">建议添加的表达</span><hr/></div>
         ${(r.fresh || []).map((f, k) => `<div class="card violet">
           <p class="skel en">${skel(f.skeleton)} <button class="link" data-sayt="${esc(f.skeleton)}">🔊</button></p>
           <p class="zh sub" style="margin-top:4px">${esc(f.zh || '')}</p>
@@ -332,16 +367,15 @@ export function viewLibrary(app) {
   const ev = S.evolutionPairs(4);
 
   app.innerHTML = `<div class="view stack">
-    <div><h1 class="h-lg zh">句库</h1>
-      <p class="sub zh" style="margin-top:6px">${m.total} 个骨架 · ${m.owned} 个已内化 · 真实用过 ${m.realUses} 次。小而高频，不求多。</p></div>
+    <div class="page-head"><div class="page-head-copy"><h1 class="h-lg zh">句库</h1>
+      <p class="sub zh">${m.total} 个表达 · ${m.owned} 个已掌握 · 实际使用 ${m.realUses} 次</p></div></div>
 
     <div class="seg">
       ${[['all', `全部 ${map.all.length}`], ['due', `到期 ${map.due.length}`], ['silent', `没说过 ${map.silent.length}`], ['owned', `已内化 ${map.owned.length}`]]
         .map(([k, t]) => `<button class="${libFilter === k ? 'on' : ''}" data-f="${k}">${t}</button>`).join('')}
     </div>
 
-    ${libFilter === 'silent' && map.silent.length ? `<div class="card warm"><p class="zh" style="font-weight:600">这些是你真正的缺口</p>
-      <p class="tiny zh" style="margin-top:5px">「认识但说不出来」不是见得不够多，是从来没在压力下产出过一次。它们排在召回队列最前面。</p></div>` : ''}
+    ${libFilter === 'silent' && map.silent.length ? `<div class="card warm"><p class="zh sub">这些表达还没有完成过口头练习。</p></div>` : ''}
 
     <div class="card flat" style="padding:6px 15px">
       ${list.length ? list.map(i => `<div class="li" style="cursor:pointer" data-item="${i.id}">
@@ -349,12 +383,12 @@ export function viewLibrary(app) {
           <p class="skel en" style="font-size:15.5px">${skel(i.skeleton)}</p>
           <p class="tiny zh" style="margin-top:3px">${srcPill(i.source.kind)} ${esc(i.zh)}</p>
           <div class="chips" style="margin-top:6px">
-            ${i.mine.length ? `<span class="chip acc">我造过 ${i.mine.length} 句</span>` : `<span class="chip warm">还没说过</span>`}
-            ${i.usedReal.length ? `<span class="chip violet">真用过 ${i.usedReal.length} 次</span>` : ''}
-            <span class="chip">${i.dueAt === Infinity ? '不再问' : inWords(i.dueAt) + '问'}</span>
+            ${i.mine.length ? `<span class="chip acc">练习 ${i.mine.length} 次</span>` : `<span class="chip warm">未练习</span>`}
+            ${i.usedReal.length ? `<span class="chip violet">使用 ${i.usedReal.length} 次</span>` : ''}
+            <span class="chip">${i.dueAt === Infinity ? '已完成' : inWords(i.dueAt) + '复习'}</span>
           </div>
         </div>
-        <div style="text-align:right">${ladderHTML(i.box, i.status === 'owned')}</div>
+        <div style="text-align:right">${ladderHTML(i.box, i.status === 'owned', { labeled: true })}</div>
       </div>`).join('') : `<div class="empty"><div class="big">◍</div><p class="zh">这一栏是空的</p></div>`}
     </div>
 
@@ -372,7 +406,6 @@ export function viewLibrary(app) {
       <div class="eyebrow">这一周</div>
       <div class="kv"><b>召回次数</b><span>${m.recall7} 次 · 通过率 ${m.hitRate}%</span></div>
       <div class="kv"><b>新收编</b><span>${m.newThisWeek} / ${S.WEEKLY_NEW_BUDGET}</span></div>
-      <p class="tiny zh" style="margin-top:9px">只有两个指标上首页：已内化数、真实使用次数。其它都是排查用的，不该占你注意力。</p>
     </div>
   </div>`;
 
@@ -386,23 +419,60 @@ const parse = (s) => (s || '').split(/[、,，\n;；]+/).map(x => x.trim()).filt
 
 export function profileSheet() {
   const p = S.state.profile;
+  const level = p.englishLevel || { scale: 'cefr', score: '', cefr: '' };
   openSheet('我的画像', `
     <p class="tiny zh" style="margin-bottom:14px">这些选填信息只用于让分析和练习贴合你的实际场景。</p>
     <label class="fld"><span>岗位 / 你在做什么</span><input type="text" id="p-role" value="${esc(p.role)}" placeholder="填写岗位或职责（选填）" /></label>
     <label class="fld"><span>为什么要学英语</span><textarea id="p-goal" rows="2" placeholder="填写你希望用英语完成什么（选填）">${esc(p.goal || '')}</textarea></label>
+    <label class="fld"><span>英语水平自评</span>
+      <div class="row">
+        <select id="p-level-scale" style="width:42%">
+          <option value="cefr" ${level.scale === 'cefr' ? 'selected' : ''}>CEFR</option>
+          <option value="ielts" ${level.scale === 'ielts' ? 'selected' : ''}>IELTS</option>
+          <option value="toefl" ${level.scale === 'toefl' ? 'selected' : ''}>TOEFL iBT</option>
+          <option value="toeic" ${level.scale === 'toeic' ? 'selected' : ''}>TOEIC</option>
+          <option value="cet4" ${level.scale === 'cet4' ? 'selected' : ''}>英语四级</option>
+          <option value="cet6" ${level.scale === 'cet6' ? 'selected' : ''}>英语六级</option>
+        </select>
+        <input class="grow" type="text" id="p-level-score" value="${esc(level.score || '')}" placeholder="例如 B2 或 6.5" />
+      </div>
+      <small id="p-level-result">${level.cefr ? `统一等级：CEFR ${esc(level.cefr)}${level.approximate ? '（近似）' : ''}` : '用于调整表达和题目难度；可留空'}</small>
+    </label>
     <label class="fld"><span>常聊的话题（顿号分隔）</span><textarea id="p-dom" rows="2" placeholder="填写常聊的话题（选填）">${esc(CSV(p.domains))}</textarea></label>
     <label class="fld"><span>主要跟谁说英语</span><input type="text" id="p-cp" value="${esc(CSV(p.counterparts))}" placeholder="填写沟通对象（选填）" /></label>
     <label class="fld"><span>高频真实场景（造句和出题会轮着用）</span><textarea id="p-sc" rows="3" placeholder="填写常见沟通场景（选填）">${esc(CSV(p.scenarios))}</textarea></label>
     <label class="fld"><span>近期要面对的事</span><textarea id="p-up" rows="2" placeholder="填写近期场景（选填）">${esc(p.upcoming)}</textarea></label>
     <button class="btn btn-pri btn-blk" id="p-save">保存</button>`, () => {
+    const updateLevelPreview = () => {
+      const score = $('#p-level-score').value.trim();
+      const normalized = normalizeEnglishLevel($('#p-level-scale').value, score);
+      $('#p-level-result').textContent = !score
+        ? '用于调整表达和题目难度；可留空'
+        : normalized
+          ? `统一等级：CEFR ${normalized.cefr}${normalized.approximate ? '（难度适配近似值）' : ''}`
+          : '请输入有效成绩或 A1–C2';
+    };
+    $('#p-level-scale').addEventListener('change', updateLevelPreview);
+    $('#p-level-score').addEventListener('input', updateLevelPreview);
     $('#p-save').addEventListener('click', () => {
+      const levelScore = $('#p-level-score').value.trim();
+      const englishLevel = levelScore
+        ? normalizeEnglishLevel($('#p-level-scale').value, levelScore)
+        : null;
+      if (levelScore && !englishLevel) {
+        toast('英语水平格式不正确');
+        return;
+      }
       Object.assign(S.state.profile, {
         role: $('#p-role').value.trim(), goal: $('#p-goal').value.trim(),
+        englishLevel,
         domains: parse($('#p-dom').value),
         counterparts: parse($('#p-cp').value), scenarios: parse($('#p-sc').value),
         upcoming: $('#p-up').value.trim(),
       });
-      S.save(); closeSheet(); toast('画像已更新 ✓'); go(location.hash.slice(1) || 'home');
+      S.save(); closeSheet(); toast(
+        englishLevel ? `画像已更新 · ${englishLevelLabel(englishLevel)}` : '画像已更新',
+      ); go(location.hash.slice(1) || 'home');
     });
   });
 }
