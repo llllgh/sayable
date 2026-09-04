@@ -2,6 +2,7 @@ export const LLM_OUTPUT_TOKENS = {
   providerDefault: 8_192,
   providerPreflight: 4_096,
   capture: 8_192,
+  reviewCue: 4_096,
   judge: 4_096,
   compress: 8_192,
   meetingPreflight: 8_192,

@@ -130,7 +130,9 @@ describe('daily recommendations', () => {
   it('keeps the route, swipe controls, and collection path wired', () => {
     const main = readFileSync('js/main.js', 'utf8');
     const home = readFileSync('js/views.js', 'utf8');
+    const secondary = readFileSync('js/views2.js', 'utf8');
     const view = readFileSync('js/recommendations.js', 'utf8');
+    const store = readFileSync('js/store.js', 'utf8');
 
     expect(main).toContain('recommend: viewRecommendations');
     expect(home).toContain('data-nav="recommend"');
@@ -140,6 +142,17 @@ describe('daily recommendations', () => {
     expect(view).toContain('markRecommendationPracticed');
     expect(view).toContain('今日推荐已完成');
     expect(view).toContain("go('home')");
+    expect(view).toContain('收录并练习 · 复习顺延');
+    expect(view).not.toContain('openBudgetSwap');
+    expect(view).not.toContain('S.retire');
+    expect(view).not.toContain('替换后开始练习');
     expect(view).not.toContain('继续深入练习');
+    expect(view).toContain('target_zh: recommendation.zh');
+    expect(home).not.toContain('cap-swap');
+    expect(secondary).not.toContain('S.budgetLeft');
+    expect(secondary).not.toContain('本周名额已满');
+    expect(store).toContain(
+      'export const WEEKLY_NEW_TARGET = DEFAULT_WEEKLY_NEW_TARGET',
+    );
   });
 });

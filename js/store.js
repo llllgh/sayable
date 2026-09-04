@@ -2,10 +2,10 @@
    store.js — 数据模型 / 持久化 / 调度
    设计原则（与实习生方案的关键差异）：
    1) 学习单元 = 可复用「骨架」，不是句子、不是单词。
-   2) 调度刻意做「笨」：固定阶梯 0/1/3/7/21/60 天。150 条/年的量级下，
+   2) 调度刻意做「笨」：固定阶梯 0/1/3/7/21/60 天。个人句库的量级下，
       精调 FSRS 的收益远小于它带来的不可校准的魔法参数成本。
    3) 「已内化(owned)」必须有真实场景使用证据，模型打分不能单独授予。
-   4) 每周新收编硬预算 = 3 条（老师原话）。超了必须先淘汰一条。稀缺是功能。
+   4) 每周建议收编 15 条，但不硬拦截；超出的条目自动错峰进入复习队列。
    ========================================================================= */
 
 import {
@@ -27,7 +27,14 @@ import {
   setSpeechApiKey,
   setTextProviderApiKey,
 } from '../src/platform/secure.ts';
-import { LADDER_DAYS, isOwned, nextReview } from '../src/core/scheduler.ts';
+import {
+  DEFAULT_WEEKLY_NEW_TARGET,
+  LADDER_DAYS,
+  applyReviewNotBefore,
+  initialReviewDelayDays,
+  isOwned,
+  nextReview,
+} from '../src/core/scheduler.ts';
 import {
   CURRENT_STATE_FORMAT_VERSION,
   migratePersistedState,
@@ -63,7 +70,7 @@ const DEFAULT_TEXT_PROVIDER = getTextProviderProfile(
 
 /* 间隔阶梯：天。box 5 = 毕业候选 */
 export const LADDER = [...LADDER_DAYS];
-export const WEEKLY_NEW_BUDGET = 3;
+export const WEEKLY_NEW_TARGET = DEFAULT_WEEKLY_NEW_TARGET;
 
 export const state = {
   profile: {
@@ -421,6 +428,7 @@ export const TRUST_BY_SRC = {
 };
 
 export function makeItem(o) {
+  const createdAt = Number(o.createdAt) || now();
   return {
     id: uid(),
     skeleton: o.skeleton,           // "The bottleneck has shifted from X to Y"
@@ -431,23 +439,50 @@ export function makeItem(o) {
     source: { kind: o.srcKind || 'zh', raw: o.raw || '', at: now() },
     trust: TRUST_BY_SRC[o.srcKind] ?? 1,
     seeds: o.seeds || [],           // 模型给的迁移例句（参考，不算我的）
+    drill: o.drill || null,         // 捕获时模型写的具体造句任务 {brief, target_zh}
     mine: [],                       // 我自己造的句子 {text, at, ctx}
     box: 0,
-    dueAt: now(),                   // 立刻先造一句
+    dueAt: Number.isFinite(o.dueAt) ? Number(o.dueAt) : createdAt,
+    reviewNotBefore: Number.isFinite(o.reviewNotBefore)
+      ? Number(o.reviewNotBefore)
+      : 0,
     lastAt: 0,
     history: [],                    // {at, ok, answer, ms, ctx, why}
     usedReal: [],                   // {at, scenario}  ← 真实世界证据
     status: 'learning',
-    createdAt: now(),
+    createdAt,
   };
 }
 
 export function addItem(o) {
-  const it = makeItem(o);
+  const createdAt = now();
+  const delayDays = initialReviewDelayDays(
+    newThisWeek(),
+    WEEKLY_NEW_TARGET,
+  );
+  const reviewNotBefore = delayDays
+    ? createdAt + delayDays * 86_400_000
+    : 0;
+  const it = makeItem({
+    ...o,
+    createdAt,
+    dueAt: reviewNotBefore || createdAt,
+    reviewNotBefore,
+  });
   state.items.unshift(it); track('capture'); save();
   return it;
 }
 export function getItem(id) { return state.items.find(i => i.id === id); }
+export function setItemDrill(id, drill) {
+  const it = getItem(id);
+  const brief = String(drill?.brief || '').trim();
+  const targetZh = String(drill?.target_zh || '').trim();
+  if (!it) throw new Error('找不到要更新的表达');
+  if (!brief || !targetZh) throw new Error('模型没有生成完整的复习提示');
+  it.drill = { brief, target_zh: targetZh };
+  track('review_cue_regenerated', id);
+  return it.drill;
+}
 export function retire(id) {
   const it = getItem(id); if (!it) return;
   it.status = 'retired'; it.dueAt = Infinity; save();
@@ -515,23 +550,17 @@ export function removeNotificationReply(itemId, answer) {
   save();
 }
 
-/* ---------------- 每周预算 ---------------- */
+/* ---------------- 每周建议量与错峰 ---------------- */
 export function newThisWeek() {
   const t = now() - WEEK;
   return state.items.filter(i => i.createdAt > t && i.status !== 'retired').length;
 }
-export function budgetLeft() { return Math.max(0, WEEKLY_NEW_BUDGET - newThisWeek()); }
-export function newItemsThisWeek() {
-  const t = now() - WEEK;
-  return live()
-    .filter(item => item.createdAt > t)
-    .sort((a, b) => (
-      (a.usedReal.length - b.usedReal.length)
-      || (a.mine.length - b.mine.length)
-      || (a.createdAt - b.createdAt)
-    ));
+export function weeklyTargetLeft() {
+  return Math.max(0, WEEKLY_NEW_TARGET - newThisWeek());
 }
-
+export function nextItemReviewDelayDays() {
+  return initialReviewDelayDays(newThisWeek(), WEEKLY_NEW_TARGET);
+}
 /* ---------------- 今日推荐 ---------------- */
 export function todayRecommendationDeck(date = new Date()) {
   const deck = normalizeDailyRecommendationDeck(state.dailyRecommendations);
@@ -603,13 +632,18 @@ export function nextDue() { return dueItems()[0] || null; }
 /* 成功 → 上一格；失败 → 退一格，8 小时后再来 */
 export function grade(id, ok, payload = {}) {
   const it = getItem(id); if (!it) return null;
+  const firstAttempt = it.history.length === 0;
+  const reviewNotBefore = firstAttempt
+    ? Math.max(0, Number(it.reviewNotBefore) || 0)
+    : 0;
   const lastPassedAt = [...it.history].reverse().find(h => h.ok)?.at || 0;
   it.history.push({ at: now(), ok: !!ok, answer: payload.answer || '', ms: payload.ms || 0, ctx: payload.ctx || '', why: payload.why || '' });
   if (payload.answer) it.mine.push({ text: payload.answer, at: now(), ctx: payload.ctx || '' });
   it.lastAt = now();
   const next = nextReview(it, !!ok, now(), lastPassedAt);
   it.box = next.box;
-  it.dueAt = next.dueAt;
+  it.dueAt = applyReviewNotBefore(next, reviewNotBefore).dueAt;
+  if (firstAttempt) it.reviewNotBefore = 0;
   recomputeStatus(it);
   track(ok ? 'recall_ok' : 'recall_miss');
   save();
@@ -647,7 +681,7 @@ export function metrics() {
     due: dueItems().length,
     recall7, ok7,
     hitRate: recall7 ? Math.round(ok7 / recall7 * 100) : 0,
-    newThisWeek: newThisWeek(), budgetLeft: budgetLeft(),
+    newThisWeek: newThisWeek(),
     inbox: state.inbox.length,
   };
 }

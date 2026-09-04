@@ -19,4 +19,16 @@ describe('native security configuration', () => {
     expect(onboarding).not.toMatch(/id="ob-key"[^>]*\svalue=/);
     expect(onboarding).not.toMatch(/id="ob-speech-key"[^>]*\svalue=/);
   });
+
+  it('adds visibility controls to every API key input', () => {
+    const source = readFileSync('js/views2.js', 'utf8');
+
+    expect(source).toContain('data-secret-target="${id}"');
+    expect(source).toContain("secretInputHTML('ob-key'");
+    expect(source).toContain("secretInputHTML('ob-speech-key'");
+    expect(source).toContain("secretInputHTML('s-key'");
+    expect(source).toContain("secretInputHTML('s-speech-key'");
+    expect(source).toContain("input.type = revealed ? 'text' : 'password'");
+    expect(source).toContain("revealed ? '隐藏 API Key' : '显示 API Key'");
+  });
 });

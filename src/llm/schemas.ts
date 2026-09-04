@@ -32,6 +32,11 @@ export const captureSchema = z.object({
   }),
 }).passthrough();
 
+export const reviewCueSchema = z.object({
+  brief: z.string().trim().min(1),
+  target_zh: z.string().trim().min(1),
+}).strict();
+
 export const judgeSchema = z.object({
   ok: z.boolean(),
   used_target: z.boolean(),

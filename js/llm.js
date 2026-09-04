@@ -27,6 +27,7 @@ import {
   judgeSchema,
   preflightSchema,
   recommendationSchema,
+  reviewCueSchema,
 } from '../src/llm/schemas.ts';
 import {
   normalizeJudgementText,
@@ -82,7 +83,7 @@ const SYS = `你是一名专门服务「被动词汇量很大、主动调用通�
    判断标准只有一个：**一个务实的母语者同事，在这个真实会议场景里，会不会真的这么说。**
 5. 解释「为什么这样更好」时，必须对照学习者的原话/中文，点出**具体病症**（例如：先铺垫再给结论、用长否定代替紧凑名词短语、把一个因果关系拆成三句、用 very/a lot of 代替精确动词），不要空谈「更自然」。
 6. 口语版必须真的能一口气说完（约 15 秒 / 25~35 词以内）。
-7. 立刻练习题：只给交际功能和场景，**绝不能在题目里出现目标骨架本身或它的完整答案**。
+7. 立刻练习题：**绝不能在题目里出现目标骨架本身或它的完整英文答案**。但 target_zh 必须是一句**具体到接近翻译**的完整中文，说清楚要表达的那件事（含关键信息），让学习者一看就知道该用英文说什么，而不是一个宽泛场景。例如「当你想跟同事说：从成本角度看，发请求前先压缩上下文、裁掉无关背景会很有效」，不要写成「跟同事聊聊成本问题」。
 8. 不得虚构用户未提供的项目、平台、人员、故障或业务事实；上下文不足时使用中性的 X / Y / Z 占位信息。
 9. 若画像提供了 CEFR 等级，表达长度、词汇和句法复杂度必须适应该等级；优先提供学习者能立即说出口的高频结构，不得为了显得高级而使用超纲词汇。
 10. 全部 JSON 输出，不要 markdown 代码块，不要多余解释。中文字段用中文，英文字段用英文。`;
@@ -110,8 +111,8 @@ const SCHEMA_HINT = `严格按此 JSON 结构输出：
   },
   "bonus": { "skeleton": "...", "zh": "..." } 或 null,
   "drill": {
-    "brief": "立刻造句题（中文描述交际功能 + 一个学习者的真实场景，不许泄露答案）",
-    "target_zh": "这道题要表达的中文意思"
+    "brief": "立刻造句题（中文，一句具体到接近翻译的完整任务：说清要表达的那件事和关键信息，不许出现英文答案或目标骨架）",
+    "target_zh": "这道题要用英文说出的完整中文意思（具体、含关键信息，接近可直译的程度）"
   }
 }`;
 
@@ -210,6 +211,48 @@ ${text}
     { maxTokens: LLM_OUTPUT_TOKENS.capture, task: 'capture' },
   );
   return normalize(out, mode);
+}
+
+/* ---------- 1.1) 为旧条目补具体复习提示 ---------- */
+export async function regenerateReviewCue(item) {
+  const source = String(item?.source?.raw || '').trim().slice(0, 2000);
+  const seeds = (Array.isArray(item?.seeds) ? item.seeds : []).slice(0, 3);
+  const currentDrill = item?.drill && typeof item.drill === 'object'
+    ? item.drill
+    : null;
+  const sys = `你是中文母语职业人士的英语表达教练。你只为一个已经保存的英文表达骨架生成复习提示，不修改骨架本身。
+
+硬性要求：
+1. target_zh 必须是具体、完整、接近可直译的一句中文，明确说出要表达的事实或观点以及关键信息。
+2. brief 必须是自然的中文任务描述，可用「当你想跟同事说：……」等形式，但不得泛化成「聊聊成本」「和外国同事沟通」。
+3. brief 和 target_zh 都不得出现目标英文骨架、完整英文答案或中英夹杂。
+4. 优先还原原始输入中的事实；其次使用参考例句里的具体关系。不得虚构用户未提供的项目、人员、客户或业务事实。
+5. 这道题必须能自然地用目标骨架作答。只输出 JSON：
+{"brief":"具体中文任务","target_zh":"要用英文说出的完整中文意思"}`;
+  const user = `【学习者画像】
+${profileBlock()}
+
+【已有条目】
+${JSON.stringify({
+    skeleton: item?.skeleton || '',
+    zh: item?.zh || '',
+    why: item?.why || '',
+    source,
+    seeds,
+    currentDrill,
+  }, null, 2)}
+
+请重新生成一条比现有提示更具体的复习提示。`;
+
+  return await chat(
+    [{ role: 'system', content: sys }, { role: 'user', content: user }],
+    reviewCueSchema,
+    {
+      temperature: 0.45,
+      maxTokens: LLM_OUTPUT_TOKENS.reviewCue,
+      task: 'review_cue',
+    },
+  );
 }
 
 /* ---------- 2) 判卷（召回 / 立刻造句 都用这个） ---------- */

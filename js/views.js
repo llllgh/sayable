@@ -8,33 +8,26 @@ import { esc, skel, $, $$, toast, openSheet, closeSheet, ago, inWords, words, la
 import { buildJudgementFeedback } from '../src/core/judgement.ts';
 import { recommendationProgress } from '../src/core/recommendations.ts';
 import { reviewSupport } from '../src/core/review-support.ts';
+import {
+  buildReviewCue,
+  hasSpecificReviewCue,
+} from '../src/core/review-cue.ts';
 
 export let go = () => {};                 // 由 main.js 注入路由
 export function bindRouter(fn) { go = fn; }
 
 /* ---------------------------------------------------------------- 通用：造句题的本地出题 */
+/* 前几档给「接近翻译」的具体中文（模型在捕获时写好的 target_zh），
+   让提示真正有指向；后几档用模型写的具体情景任务。全程只用中文，
+   不把中文模板套在英文画像字段上，避免「与Foreign colleagues沟通…」这类夹杂。 */
 export function cueFor(it) {
-  const profile = S.state.profile;
-  const sc = profile.scenarios || [];
-  const seen = it.mine.map(m => m.ctx).filter(Boolean);
-  const fresh = sc.filter(x => !seen.includes(x));
-  const topic = profile.domains?.[0] || profile.goal || '一项工作安排';
-  const counterpart = profile.counterparts?.[0];
-  const fallback = counterpart
-    ? `与${counterpart}沟通${topic}`
-    : profile.role
-      ? `${profile.role}工作中确认${topic}`
-      : it.register === 'email'
-        ? '回复一封需要确认下一步的邮件'
-        : it.register === 'casual'
-          ? '与同事进行一次简短交流'
-          : '与同事确认一项工作的下一步';
-  const scenario = profile.upcoming || fresh[0] || sc[0] || fallback;
-  return {
-    brief: `场景：${scenario}。请说一句符合这个场景的完整英文。`,
-    ctx: scenario,
-    target_zh: it.zh,
-  };
+  return buildReviewCue(it);
+}
+
+async function regenerateCueForItem(item) {
+  const drill = await L.regenerateReviewCue(item);
+  S.setItemDrill(item.id, drill);
+  return cueFor(item);
 }
 
 function speechFeedbackHTML(assessment) {
@@ -91,6 +84,8 @@ export function drillCard(it, cue, opts = {}) {
   const id = 'd' + it.id;
   const support = reviewSupport(it);
   const guided = support.mode === 'guided';
+  const needsSpecificCue = !hasSpecificReviewCue(it);
+  let activeCue = cue;
   const html = `
   <div class="card warm drill-card" id="${id}">
     <div class="row drill-head" style="justify-content:space-between;margin-bottom:12px">
@@ -98,7 +93,8 @@ export function drillCard(it, cue, opts = {}) {
       <span class="chip ${guided ? 'warm' : ''}">${guided ? '含英文提示' : '主动回忆'}</span>
     </div>
     <div class="drill-input">
-      <p class="zh" style="font-size:17px;font-weight:650;line-height:1.5">${esc(cue.brief)}</p>
+      <p class="zh" id="${id}-cue" style="font-size:17px;font-weight:650;line-height:1.5">${esc(activeCue.brief)}</p>
+      ${needsSpecificCue ? `<button class="btn-text" id="${id}-regen-cue" type="button">生成更具体的提示</button>` : ''}
       ${guided ? `<div class="drill-guide">
         <div class="row" style="justify-content:space-between;align-items:flex-start">
           <div class="grow">
@@ -157,6 +153,22 @@ export function drillCard(it, cue, opts = {}) {
       'click',
       () => SP.say(support.example || support.skeleton),
     );
+    $('#' + id + '-regen-cue')?.addEventListener('click', async () => {
+      const button = $('#' + id + '-regen-cue');
+      button.disabled = true;
+      button.textContent = '正在生成…';
+      try {
+        activeCue = await regenerateCueForItem(it);
+        const cueText = $('#' + id + '-cue');
+        if (cueText) cueText.textContent = activeCue.brief;
+        button.remove();
+        toast('具体提示已保存');
+      } catch (error) {
+        button.disabled = false;
+        button.textContent = '重试生成具体提示';
+        toast(L.userMessage(error));
+      }
+    });
 
     $('#' + id + '-mic')?.addEventListener('click', () => {
       if (!SP.canListen()) {
@@ -188,7 +200,7 @@ export function drillCard(it, cue, opts = {}) {
         <p class="dim zh" style="margin-top:8px">${esc(it.why || '')}</p>
         <div class="row" style="margin-top:12px"><button class="btn btn-pri grow" id="${id}-again">再练一次</button></div>
       </div>`;
-      S.grade(it.id, false, { answer: '', ms: Date.now() - t0, ctx: cue.ctx, why: 'revealed' });
+      S.grade(it.id, false, { answer: '', ms: Date.now() - t0, ctx: activeCue.ctx, why: 'revealed' });
       opts.onResult?.(false);
       SP.say(support.example || it.skeleton);
       $('#' + id + '-again')?.addEventListener('click', () => opts.onGraded?.(false));
@@ -202,7 +214,7 @@ export function drillCard(it, cue, opts = {}) {
       out.innerHTML = thinking('正在检查表达');
       let r;
       try {
-        r = await L.judge({ skeleton: it.skeleton, zh: it.zh, brief: cue.brief, answer: ans, seeds: it.seeds });
+        r = await L.judge({ skeleton: it.skeleton, zh: it.zh, brief: activeCue.brief, answer: ans, seeds: it.seeds });
       } catch (e) {
         out.innerHTML = `<div class="drill-result"><p class="zh sub">${esc(L.userMessage(e))}</p>
           <p class="tiny zh" style="margin-top:7px">可先记录自己的判断：</p>
@@ -220,7 +232,7 @@ export function drillCard(it, cue, opts = {}) {
       S.grade(it.id, ok, {
         answer: ans,
         ms: Date.now() - t0,
-        ctx: cue.ctx,
+        ctx: activeCue.ctx,
         why: feedback.note || feedback.correction?.summary || '',
       });
       opts.onResult?.(ok);
@@ -252,7 +264,7 @@ export function drillCard(it, cue, opts = {}) {
           <button class="btn btn-pri btn-blk" id="ur-ok">记下来</button>
           <p class="tiny zh" style="margin-top:12px">这一栏只有你自己能填。它决定这条骨架能不能毕业，也是这个 app 唯一的北极星指标。</p>`, () => {
           $('#ur-ok').addEventListener('click', () => {
-            S.markUsedReal(it.id, $('#ur-sc').value.trim() || cue.ctx);
+            S.markUsedReal(it.id, $('#ur-sc').value.trim() || activeCue.ctx);
             closeSheet(); toast('已记入真实使用 ✓'); opts.onGraded?.(ok, true);
           });
         });
@@ -552,7 +564,8 @@ export function viewCapture(app, arg) {
 function renderCaptureResult(out, r, raw, app) {
   const p = r.primary;
   const risky = /risky/i.test(p.native_check || '') || r.flagged;
-  const left = S.budgetLeft();
+  const left = S.weeklyTargetLeft();
+  const delayDays = S.nextItemReviewDelayDays();
   const input = $('#capture-input');
   if (input) input.hidden = true;
   out.innerHTML = `<div class="stack">
@@ -605,14 +618,12 @@ function renderCaptureResult(out, r, raw, app) {
       <p class="skel en" style="font-size:16px;margin-top:6px">${skel(r.bonus.skeleton)}</p>
       <p class="tiny zh" style="padding-bottom:10px">${esc(r.bonus.zh || '')}</p></details>` : ''}
 
-    <div class="card ${left ? '' : 'warm'}">
-      ${left ? `<p class="zh" style="font-weight:600">加入句库并练习</p>
-        <p class="tiny zh" style="margin-top:5px">本周还可添加 ${left} 个表达。</p>
-        <button class="btn btn-pri btn-blk" id="cap-add" style="margin-top:12px">加入并开始练习</button>`
-      : `<p class="zh" style="font-weight:600">本周 3 个名额已满</p>
-        <p class="tiny zh" style="margin-top:5px">这是刻意的。想收它，先淘汰一个现在最用不上的。</p>
-        <button class="btn btn-warm btn-blk" id="cap-swap" style="margin-top:12px">淘汰一个，换它进来</button>
-        <button class="btn btn-ghost btn-blk btn-sm" id="cap-skip" style="margin-top:8px">暂不添加</button>`}
+    <div class="card">
+      <p class="zh" style="font-weight:600">加入句库并练习</p>
+      <p class="tiny zh" style="margin-top:5px">${left
+        ? `本周建议量还剩 ${left} 条。`
+        : `已达到每周 ${S.WEEKLY_NEW_TARGET} 条建议量；仍可收录，后续复习将自动顺延约 ${delayDays} 天。`}</p>
+      <button class="btn btn-pri btn-blk" id="cap-add" style="margin-top:12px">加入并开始练习</button>
     </div>
     <div id="cap-drill"></div>
   </div>`;
@@ -626,22 +637,12 @@ function renderCaptureResult(out, r, raw, app) {
   $('#say-nat')?.addEventListener('click', () => SP.say(r.natural));
   $('#say-sp')?.addEventListener('click', () => SP.say(r.spoken));
   $('#say-sk')?.addEventListener('click', () => SP.say(p.skeleton));
-  $('#cap-skip')?.addEventListener('click', () => toast('暂未加入句库'));
   $('#cap-add')?.addEventListener('click', () => admit());
-  $('#cap-swap')?.addEventListener('click', () => {
-    const cands = S.live().sort((a, b) => (a.usedReal.length - b.usedReal.length) || (a.mine.length - b.mine.length));
-    openSheet('淘汰哪一个？', cands.slice(0, 8).map(i => `<button class="btn btn-blk btn-ghost" style="margin-bottom:8px;height:auto;padding:11px 13px;justify-content:flex-start;text-align:left" data-r="${i.id}">
-      <span><span class="skel en" style="font-size:14.5px">${skel(i.skeleton)}</span><br/>
-      <span class="tiny zh">真实用过 ${i.usedReal.length} 次 · 我造过 ${i.mine.length} 句</span></span></button>`).join('')
-      + `<p class="tiny zh">按「最没被真实用过」排前面。淘汰不删历史，只是不再问你。`, body => {
-        $$('[data-r]', body).forEach(b => b.addEventListener('click', () => { S.retire(b.dataset.r); closeSheet(); toast('已淘汰，名额腾出'); admit(); }));
-      });
-  });
 
   function admit() {
     S.saveDraft('');
-    const it = S.addItem({ skeleton: p.skeleton, zh: p.zh, why: p.why, register: p.register, tags: p.tags, seeds: p.seeds, srcKind: r.mode === 'fragment' ? 'fragment' : r.mode, raw });
-    const cue = { brief: r.drill?.brief || cueFor(it).brief, ctx: (S.state.profile.scenarios || [''])[0], target_zh: r.drill?.target_zh || p.zh };
+    const it = S.addItem({ skeleton: p.skeleton, zh: p.zh, why: p.why, register: p.register, tags: p.tags, seeds: p.seeds, drill: r.drill || null, srcKind: r.mode === 'fragment' ? 'fragment' : r.mode, raw });
+    const cue = cueFor(it);
     if (pendingFlashId) { S.dropFlash(pendingFlashId); pendingFlashId = null; }
     const d = drillCard(it, cue, { label: '首次练习', onGraded: () => { toast('已加入句库'); offerExitDrill(it.id); } });
     $('#cap-drill').innerHTML = d.html; d.mount();
@@ -670,6 +671,7 @@ const srcLabel = (m) => ({ heard: '听到的表达', fragment: '补全的表达'
 export function itemSheet(id) {
   const i = S.getItem(id); if (!i) return;
   const ok = i.history.filter(h => h.ok).length;
+  const currentCue = cueFor(i);
   openSheet('表达详情', `
     <p class="skel en" style="font-size:21px">${skel(i.skeleton)} <button class="link" id="is-say">朗读</button></p>
     <p class="zh sub" style="margin-top:5px">${esc(i.zh)}</p>
@@ -688,6 +690,15 @@ export function itemSheet(id) {
     ${i.source.raw ? `<div class="sec" style="margin-top:16px"><span class="eyebrow">它是怎么来的</span><hr/></div>
       <p class="quote ${/[\u4e00-\u9fa5]/.test(i.source.raw) ? 'zh' : 'en'}" style="margin-top:9px">${esc(i.source.raw)}</p>` : ''}
 
+    <div class="sec" style="margin-top:16px"><span class="eyebrow">复习提示</span><hr/></div>
+    <div class="card flat" style="margin-top:9px">
+      <p class="zh" id="is-cue-text">${esc(currentCue.brief)}</p>
+      <div class="row" style="margin-top:10px;justify-content:space-between">
+        <p class="tiny zh" id="is-cue-status">${hasSpecificReviewCue(i) ? '已保存具体提示' : '旧条目尚未生成具体提示'}</p>
+        <button class="btn btn-ghost btn-sm" id="is-cue-regenerate" type="button">${hasSpecificReviewCue(i) ? '重新生成' : '生成具体提示'}</button>
+      </div>
+    </div>
+
     <div class="sec" style="margin-top:16px"><span class="eyebrow">我的练习</span><hr/></div>
     ${i.mine.length ? i.mine.map(m => `<div class="li"><div class="grow"><p class="en" style="font-size:14px">${esc(m.text)}</p>
       <p class="tiny zh">${esc(m.ctx || '')} · ${ago(m.at)}</p></div></div>`).join('')
@@ -704,6 +715,26 @@ export function itemSheet(id) {
     $('#is-say').addEventListener('click', () => SP.say(i.skeleton));
     $('#is-used').addEventListener('click', () => { S.markUsedReal(i.id, ''); closeSheet(); toast('已记入真实使用 ✓'); go(location.hash.slice(1) || 'home'); });
     $('#is-ret').addEventListener('click', () => { i.status === 'retired' ? S.revive(i.id) : S.retire(i.id); closeSheet(); toast('已更新'); go(location.hash.slice(1) || 'home'); });
+    $('#is-cue-regenerate').addEventListener('click', async () => {
+      const button = $('#is-cue-regenerate');
+      const status = $('#is-cue-status');
+      button.disabled = true;
+      button.textContent = '正在生成…';
+      status.textContent = '正在根据原始内容和参考例句生成';
+      try {
+        const cue = await regenerateCueForItem(i);
+        const cueText = $('#is-cue-text');
+        if (cueText) cueText.textContent = cue.brief;
+        status.textContent = '已保存具体提示';
+        button.textContent = '重新生成';
+        toast('具体提示已保存');
+      } catch (error) {
+        status.textContent = L.userMessage(error);
+        button.textContent = '重试';
+      } finally {
+        button.disabled = false;
+      }
+    });
     $('#is-drill').addEventListener('click', () => {
       closeSheet();
       const app = $('#app');

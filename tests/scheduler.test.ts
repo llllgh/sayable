@@ -1,5 +1,12 @@
 import { describe, expect, it } from 'vitest';
-import { isOwned, nextReview, RETRY_MS } from '../src/core/scheduler';
+import {
+  DEFAULT_WEEKLY_NEW_TARGET,
+  RETRY_MS,
+  applyReviewNotBefore,
+  initialReviewDelayDays,
+  isOwned,
+  nextReview,
+} from '../src/core/scheduler';
 
 const DAY = 86_400_000;
 const NOW = new Date('2026-08-31T12:00:00Z').getTime();
@@ -32,5 +39,27 @@ describe('scheduler', () => {
   it('requires three real uses before an item is owned', () => {
     expect(isOwned(4, 2)).toBe(false);
     expect(isOwned(4, 3)).toBe(true);
+  });
+
+  it('accepts 15 new items per week without delaying review', () => {
+    expect(DEFAULT_WEEKLY_NEW_TARGET).toBe(15);
+    expect(initialReviewDelayDays(14)).toBe(0);
+  });
+
+  it('spreads items above the weekly target across later days', () => {
+    expect(initialReviewDelayDays(15)).toBe(2);
+    expect(initialReviewDelayDays(17)).toBe(2);
+    expect(initialReviewDelayDays(18)).toBe(3);
+    expect(initialReviewDelayDays(21)).toBe(4);
+  });
+
+  it('keeps the deferred floor after an immediate first practice', () => {
+    const next = nextReview({ box: 0, dueAt: NOW }, true, NOW);
+    const deferredUntil = NOW + 3 * DAY;
+
+    expect(applyReviewNotBefore(next, deferredUntil)).toEqual({
+      box: 1,
+      dueAt: deferredUntil,
+    });
   });
 });

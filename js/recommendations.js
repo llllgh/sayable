@@ -3,10 +3,7 @@ import * as L from './llm.js';
 import * as SP from './speech.js';
 import {
   $,
-  $$,
-  closeSheet,
   esc,
-  openSheet,
   skel,
   thinking,
   toast,
@@ -84,42 +81,11 @@ function arrowIcon(direction) {
   return `<svg viewBox="0 0 24 24" class="ic" aria-hidden="true">${path}</svg>`;
 }
 
-function openBudgetSwap(recommendation, onReady) {
-  const candidates = S.newItemsThisWeek();
-  if (!candidates.length) {
-    toast('本周收编名额已满');
-    return;
-  }
-
-  openSheet(
-    '替换本周的一条',
-    `${candidates.map(item => `<button class="btn btn-blk btn-ghost recommendation-swap" data-replace="${item.id}">
-      <span><span class="skel en" style="font-size:14.5px">${skel(item.skeleton)}</span><br/>
-      <span class="tiny zh">真实用过 ${item.usedReal.length} 次 · 我造过 ${item.mine.length} 句</span></span>
-    </button>`).join('')}
-    <p class="tiny zh" style="margin-top:10px">被替换的表达保留历史，但不再进入复习队列。</p>`,
-    body => {
-      $$('[data-replace]', body).forEach(button => button.addEventListener(
-        'click',
-        () => {
-          S.retire(button.dataset.replace);
-          closeSheet();
-          onReady(recommendation);
-        },
-      ));
-    },
-  );
-}
-
 function mountPractice(app, recommendation) {
   let item = itemForRecommendation(recommendation);
   if (item?.status === 'retired') S.revive(item.id);
 
   if (!item) {
-    if (!S.budgetLeft()) {
-      openBudgetSwap(recommendation, selected => mountPractice(app, selected));
-      return;
-    }
     item = S.addItem({
       skeleton: recommendation.skeleton,
       zh: recommendation.zh,
@@ -127,6 +93,10 @@ function mountPractice(app, recommendation) {
       register: recommendation.register,
       tags: recommendation.tags,
       seeds: [recommendation.example],
+      drill: {
+        brief: recommendation.drill,
+        target_zh: recommendation.zh,
+      },
       srcKind: 'recommendation',
       raw: '',
     });
@@ -222,9 +192,9 @@ function renderDeck(app, deck) {
     ? '继续练习'
     : existing
       ? '开始练习'
-      : S.budgetLeft()
+      : S.weeklyTargetLeft()
         ? '加入句库并练习'
-        : '替换后开始练习';
+        : '收录并练习 · 复习顺延';
 
   app.innerHTML = `<div class="view stack recommendation-view">
     ${headerHTML()}

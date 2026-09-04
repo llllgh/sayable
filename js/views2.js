@@ -4,6 +4,7 @@
 import * as S from './store.js';
 import * as L from './llm.js';
 import * as SP from './speech.js';
+import { createIcons, Eye, EyeOff } from 'lucide';
 import { esc, skel, $, $$, toast, openSheet, closeSheet, ago, inWords, words, ladderHTML, srcPill, thinking } from './ui.js';
 import { go, drillCard, cueFor, itemSheet } from './views.js';
 import {
@@ -132,7 +133,7 @@ export function viewCompress(app) {
         const existing = compressionItemFor(pattern);
         const label = existing
           ? (existing.status === 'retired' ? '已淘汰 · 可在句库恢复' : '已在句库')
-          : (S.budgetLeft() ? '收编并立刻造句' : '本周名额已满（去句库淘汰一个）');
+          : '收编并立刻造句';
         return `<div class="card acc">
           <p class="skel en">${skel(pattern.skeleton)}</p>
           ${pattern.zh ? `<p class="zh sub" style="margin-top:4px">${esc(pattern.zh)}</p>` : ''}
@@ -197,10 +198,6 @@ export function viewCompress(app) {
         button.textContent = existing.status === 'retired'
           ? '已淘汰 · 可在句库恢复'
           : '已在句库';
-        return;
-      }
-      if (!S.budgetLeft()) {
-        go('library');
         return;
       }
       const item = S.addItem({
@@ -330,7 +327,7 @@ export function viewPreflight(app) {
           <p class="zh sub" style="margin-top:4px">${esc(f.zh || '')}</p>
           <p class="zh" style="margin-top:8px;font-size:13.5px">${esc(f.why || '')}</p>
           ${(f.seeds || []).length ? `<ul class="bul en" style="margin-top:8px">${f.seeds.map(s => `<li>${esc(s)}</li>`).join('')}</ul>` : ''}
-          <button class="btn btn-sm btn-pri" style="margin-top:11px" data-fresh="${k}">${S.budgetLeft() ? '收编' : '名额已满'}</button>
+          <button class="btn btn-sm btn-pri" style="margin-top:11px" data-fresh="${k}">收编</button>
         </div>`).join('')}` : ''}
         <div id="pf-drill"></div>
       </div>`;
@@ -344,9 +341,8 @@ export function viewPreflight(app) {
         $('#pf-d-' + b.dataset.warm).innerHTML = d.html; d.mount(); b.style.display = 'none';
       }));
       $$('[data-fresh]', out).forEach(b => b.addEventListener('click', () => {
-        if (!S.budgetLeft()) { toast('本周名额已满，去句库淘汰一个'); return; }
         const f = r.fresh[+b.dataset.fresh];
-        const it = S.addItem({ skeleton: f.skeleton, zh: f.zh, why: f.why, seeds: f.seeds || [], srcKind: 'preflight', raw: sc });
+        const it = S.addItem({ skeleton: f.skeleton, zh: f.zh, why: f.why, seeds: f.seeds || [], drill: f.drill ? { brief: f.drill, target_zh: f.zh } : null, srcKind: 'preflight', raw: sc });
         const d = drillCard(it, { brief: f.drill || cueFor(it).brief, ctx: sc.slice(0, 40), target_zh: f.zh }, { label: '立刻造句', onGraded: () => toast('收下了 · 明天再问你') });
         $('#pf-drill').innerHTML = d.html; d.mount();
         $('#pf-drill').scrollIntoView({ behavior: 'smooth', block: 'center' });
@@ -411,7 +407,7 @@ export function viewLibrary(app) {
     <div class="card flat">
       <div class="eyebrow">这一周</div>
       <div class="kv"><b>召回次数</b><span>${m.recall7} 次 · 通过率 ${m.hitRate}%</span></div>
-      <div class="kv"><b>新收编</b><span>${m.newThisWeek} / ${S.WEEKLY_NEW_BUDGET}</span></div>
+      <div class="kv"><b>新收编</b><span>${m.newThisWeek} 条 · 建议 ${S.WEEKLY_NEW_TARGET} 条</span></div>
     </div>
   </div>`;
 
@@ -493,6 +489,37 @@ function providerOptionsHTML(region, selectedId) {
     .join('');
 }
 
+function secretInputHTML(id, placeholder, extraAttributes = '') {
+  return `<div class="secret-field">
+    <input type="password" id="${id}" autocomplete="off" autocapitalize="none" spellcheck="false" placeholder="${esc(placeholder)}" ${extraAttributes} />
+    <button type="button" class="secret-toggle" data-secret-target="${id}" aria-controls="${id}" aria-label="显示 API Key" aria-pressed="false" title="显示 API Key">
+      <i data-lucide="eye" aria-hidden="true"></i>
+    </button>
+  </div>`;
+}
+
+function bindSecretVisibility() {
+  const renderIcons = () => createIcons({
+    icons: { Eye, EyeOff },
+    attrs: { 'aria-hidden': 'true' },
+  });
+
+  $$('[data-secret-target]').forEach((button) => {
+    button.addEventListener('click', () => {
+      const input = $(`#${button.dataset.secretTarget}`);
+      const revealed = input.type === 'password';
+      input.type = revealed ? 'text' : 'password';
+      button.setAttribute('aria-pressed', String(revealed));
+      button.setAttribute('aria-label', revealed ? '隐藏 API Key' : '显示 API Key');
+      button.title = revealed ? '隐藏 API Key' : '显示 API Key';
+      button.innerHTML = `<i data-lucide="${revealed ? 'eye-off' : 'eye'}" aria-hidden="true"></i>`;
+      renderIcons();
+      input.focus({ preventScroll: true });
+    });
+  });
+  renderIcons();
+}
+
 export function onboardingSheet(onReady) {
   const s = S.state.settings;
   let serviceRegion = initialOnboardingRegion(
@@ -517,15 +544,16 @@ export function onboardingSheet(onReady) {
       <select id="ob-provider" ${serviceRegion ? '' : 'disabled'}>${providerOptionsHTML(serviceRegion, textProviderId)}</select>
     </label>
     <label class="fld"><span id="ob-key-label">${serviceRegion ? `${esc(getTextProviderProfile(textProviderId, serviceRegion).label)} API Key` : '模型 API Key'}</span>
-      <input type="password" id="ob-key" autocomplete="off" autocapitalize="none" spellcheck="false" placeholder="${savedLlmApiKey ? '已安全保存；留空表示不修改' : '输入模型 API Key'}" />
+      ${secretInputHTML('ob-key', savedLlmApiKey ? '已安全保存；留空表示不修改' : '输入模型 API Key')}
       <small id="ob-key-help">${serviceRegion ? esc(getTextProviderProfile(textProviderId, serviceRegion).keyHelp) : '选择区域后显示可用的文本模型服务。'}</small>
     </label>
     <label class="fld"><span id="ob-speech-key-label">${serviceRegion ? `${esc(getServiceProfile(serviceRegion).speech.label)} API Key` : '语音 API Key'}</span>
-      <input type="password" id="ob-speech-key" autocomplete="off" autocapitalize="none" spellcheck="false" placeholder="${savedSpeechApiKey ? '已安全保存；留空表示不修改' : serviceRegion ? esc(getServiceProfile(serviceRegion).speech.keyPlaceholder) : '输入语音 API Key'}" />
+      ${secretInputHTML('ob-speech-key', savedSpeechApiKey ? '已安全保存；留空表示不修改' : serviceRegion ? getServiceProfile(serviceRegion).speech.keyPlaceholder : '输入语音 API Key')}
       <small id="ob-speech-key-help">${serviceRegion ? esc(getServiceProfile(serviceRegion).speech.keyHelp) : '选择区域后显示对应的语音服务。'}</small>
     </label>
     <button class="btn btn-pri btn-blk" id="ob-test">全部测试并进入</button>
     <p class="tiny zh" id="ob-result" aria-live="polite" style="margin-top:10px">模型与语音通常使用不同的 Key；语音 Key 同时用于 ASR 和 TTS。</p>`, () => {
+    bindSecretVisibility();
     const updateProviderFields = async () => {
       const select = $('#ob-provider');
       if (!serviceRegion) {
@@ -662,7 +690,7 @@ export function settingsSheet(onChange) {
       <select id="s-provider" ${s.providerMode === 'custom' ? 'disabled' : ''}>${providerOptionsHTML(region, textProvider.id)}</select>
     </label>
     <label class="fld"><span id="s-key-label">${s.providerMode === 'custom' ? '自定义服务' : esc(textProvider.label)} API Key</span>
-      <input type="password" id="s-key" value="" autocomplete="off" placeholder="${s.apiKey ? '已安全保存；留空表示不修改' : textProvider.keyPlaceholder}" />
+      ${secretInputHTML('s-key', s.apiKey ? '已安全保存；留空表示不修改' : textProvider.keyPlaceholder)}
       <small id="s-key-help">${s.providerMode === 'custom' ? '使用自定义接入点对应的 API Key。' : esc(textProvider.keyHelp)}</small>
     </label>
     <details class="advanced" ${s.providerMode === 'custom' ? 'open' : ''}>
@@ -689,7 +717,7 @@ export function settingsSheet(onChange) {
     </label>
     <div id="s-cloud-fields" ${s.voiceMode === 'cloud' ? '' : 'hidden'}>
       <label class="fld"><span>${esc(speechProfile.speech.label)} API Key</span>
-        <input type="password" id="s-speech-key" value="" autocomplete="off" placeholder="${s.speechApiKey ? '已安全保存；留空表示不修改' : esc(speechProfile.speech.keyPlaceholder)}" />
+        ${secretInputHTML('s-speech-key', s.speechApiKey ? '已安全保存；留空表示不修改' : speechProfile.speech.keyPlaceholder)}
         <small>${esc(speechProfile.speech.keyHelp)}</small>
       </label>
       <button class="btn btn-sm btn-ghost btn-blk" id="s-test-speech">试听云端语音</button>
@@ -725,6 +753,7 @@ export function settingsSheet(onChange) {
 
     <div class="sec" style="margin-top:20px"><span class="eyebrow">关于</span><hr/></div>
     <p class="tiny zh" style="margin-top:9px">MVP 请求从本机直达当前区域服务，不经过说得出的服务器；学习数据只保存在本机。</p>`, () => {
+    bindSecretVisibility();
     let voiceMode = s.voiceMode === 'cloud' ? 'cloud' : 'system';
     let selectedTextProviderId = textProvider.id;
     let savedLlmApiKey = s.apiKey;

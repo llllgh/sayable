@@ -1,6 +1,6 @@
 {
   "name": "sayable",
-  "version": "0.3.3",
+  "version": "0.3.4",
   "private": true,
   "type": "module",
   "description": "An offline-first personal English expression trainer.",
@@ -29,6 +29,7 @@
     "@capacitor/network": "^8.0.1",
     "@capacitor/share": "^8.0.1",
     "idb-keyval": "^6.3.0",
+    "lucide": "^1.41.0",
     "zod": "^4.1.5"
   },
   "devDependencies": {
