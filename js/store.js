@@ -58,6 +58,15 @@ import {
   getTextProviderProfile,
   normalizeTextProviderId,
 } from '../src/llm/profiles.ts';
+import {
+  appendRoleplayTurn,
+  createRoleplaySessionRecord,
+  nextRoleplayReview,
+  normalizeRoleplayResult,
+  normalizeRoleplaySession,
+  roleplayCommunicationPassed,
+  roleplayTargetSucceeded,
+} from '../src/core/roleplay.ts';
 
 const KEY = 'sayable.v1';
 const WEEK = 7 * 864e5;
@@ -83,6 +92,7 @@ export const state = {
   draft: '',            // 输入草稿：被打断也不会丢
   notificationReplies: [],
   compressions: [],
+  roleplaySessions: [],
   dailyRecommendations: null,
   settings: {
     providerMode: 'profile',
@@ -125,6 +135,7 @@ function persistableState() {
     draft: state.draft,
     notificationReplies: state.notificationReplies,
     compressions: state.compressions,
+    roleplaySessions: state.roleplaySessions,
     dailyRecommendations: state.dailyRecommendations,
     settings,
     log: state.log.slice(-500),
@@ -162,6 +173,12 @@ function hydrate(d) {
   state.draft = d?.draft || '';
   state.notificationReplies = Array.isArray(d?.notificationReplies) ? d.notificationReplies : [];
   state.compressions = Array.isArray(d?.compressions) ? d.compressions : [];
+  state.roleplaySessions = Array.isArray(d?.roleplaySessions)
+    ? d.roleplaySessions
+      .map(normalizeRoleplaySession)
+      .filter(Boolean)
+      .slice(-100)
+    : [];
   state.dailyRecommendations = normalizeDailyRecommendationDeck(
     d?.dailyRecommendations,
   );
@@ -433,6 +450,7 @@ export function makeItem(o) {
     id: uid(),
     skeleton: o.skeleton,           // "The bottleneck has shifted from X to Y"
     zh: o.zh || '',
+    trigger: o.trigger || '',       // 出现什么信号时，为了什么沟通意图调用它
     why: o.why || '',
     register: o.register || 'meeting',
     tags: o.tags || [],
@@ -477,9 +495,11 @@ export function setItemDrill(id, drill) {
   const it = getItem(id);
   const brief = String(drill?.brief || '').trim();
   const targetZh = String(drill?.target_zh || '').trim();
+  const trigger = String(drill?.trigger || it?.trigger || '').trim();
   if (!it) throw new Error('找不到要更新的表达');
   if (!brief || !targetZh) throw new Error('模型没有生成完整的复习提示');
   it.drill = { brief, target_zh: targetZh };
+  it.trigger = trigger;
   track('review_cue_regenerated', id);
   return it.drill;
 }
@@ -611,6 +631,95 @@ export function markRecommendationPracticed(recommendationId, practicedAt = now(
   return deck;
 }
 
+/* ---------------- Level 4 情境对话 ---------------- */
+export function activeRoleplaySession(itemId) {
+  return [...state.roleplaySessions]
+    .reverse()
+    .find(session => session.itemId === itemId && !session.completedAt)
+    || null;
+}
+
+export function createRoleplaySession(itemId, opening) {
+  const item = getItem(itemId);
+  if (!item) throw new Error('找不到要练习的表达');
+  const existing = activeRoleplaySession(itemId);
+  if (existing) return existing;
+  const timestamp = now();
+  const session = createRoleplaySessionRecord({
+    id: uid(),
+    itemId,
+    now: timestamp,
+    role: opening?.role,
+    scenario: opening?.scenario,
+    opening: opening?.opening,
+  });
+  state.roleplaySessions.push(session);
+  if (state.roleplaySessions.length > 100) state.roleplaySessions.shift();
+  track('roleplay_started', itemId);
+  save();
+  return session;
+}
+
+export function addRoleplayTurn(sessionId, speaker, value) {
+  const index = state.roleplaySessions.findIndex(candidate => candidate.id === sessionId);
+  if (index < 0) throw new Error('找不到这次情境对话');
+  const session = appendRoleplayTurn(
+    state.roleplaySessions[index],
+    speaker,
+    value,
+    now(),
+  );
+  state.roleplaySessions[index] = session;
+  save();
+  return session;
+}
+
+export function completeRoleplaySession(sessionId, rawResult) {
+  const session = state.roleplaySessions.find(candidate => candidate.id === sessionId);
+  if (!session) throw new Error('找不到这次情境对话');
+  if (session.result) return session;
+  if (session.turns.length !== 4) throw new Error('请先完成两轮回答');
+  const item = getItem(session.itemId);
+  if (!item) throw new Error('找不到要练习的表达');
+
+  const result = normalizeRoleplayResult(rawResult);
+  const completedAt = now();
+  const targetSucceeded = roleplayTargetSucceeded(result);
+  const communicationPassed = roleplayCommunicationPassed(result);
+  const lastPassedAt = [...item.history].reverse().find(entry => entry.ok)?.at || 0;
+  const next = nextRoleplayReview(item, result, completedAt, lastPassedAt);
+  const answers = session.turns
+    .filter(turn => turn.speaker === 'user')
+    .map(turn => turn.text);
+
+  session.result = result;
+  session.completedAt = completedAt;
+  item.history.push({
+    at: completedAt,
+    kind: 'roleplay',
+    ok: targetSucceeded,
+    communicationOk: communicationPassed,
+    answer: answers.join(' / '),
+    ms: completedAt - session.startedAt,
+    ctx: session.scenario,
+    why: result.note || result.verdict,
+  });
+  item.lastAt = completedAt;
+  item.box = next.box;
+  item.dueAt = next.dueAt;
+  recomputeStatus(item);
+  track(
+    targetSucceeded
+      ? 'roleplay_target_ok'
+      : communicationPassed
+        ? 'roleplay_communication_ok'
+        : 'roleplay_miss',
+    item.id,
+  );
+  save();
+  return session;
+}
+
 /* ---------------- 调度 ---------------- */
 export function live() { return state.items.filter(i => i.status !== 'retired'); }
 
@@ -700,7 +809,13 @@ export function relevantItems(scenario, n = 6) {
   const q = (scenario || '').toLowerCase();
   const toks = q.split(/[^a-z0-9\u4e00-\u9fa5]+/).filter(w => w.length > 1);
   return live().map(i => {
-    const hay = (i.skeleton + ' ' + i.zh + ' ' + i.tags.join(' ') + ' ' + i.seeds.join(' ')).toLowerCase();
+    const hay = (
+      i.skeleton
+      + ' ' + i.zh
+      + ' ' + (i.trigger || '')
+      + ' ' + i.tags.join(' ')
+      + ' ' + i.seeds.join(' ')
+    ).toLowerCase();
     let s = 0;
     toks.forEach(t => { if (hay.includes(t)) s += 2; });
     if (i.dueAt <= now()) s += 1.2;                 // 顺手把到期的一起带上

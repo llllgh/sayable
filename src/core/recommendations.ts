@@ -7,6 +7,7 @@ export interface RecommendationCard {
   id: string;
   skeleton: string;
   zh: string;
+  trigger: string;
   why: string;
   example: string;
   drill: string;
@@ -65,6 +66,7 @@ function normalizeCard(
     id,
     skeleton,
     zh,
+    trigger: text(value.trigger) || text(value.why),
     why: text(value.why),
     example,
     drill: text(value.drill),

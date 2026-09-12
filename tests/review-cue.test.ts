@@ -30,6 +30,7 @@ describe('buildReviewCue', () => {
     const cue = buildReviewCue({
       box: 4,
       zh: '压缩上下文能省钱',
+      trigger: '当对方担心推理成本时，提出先缩减无关上下文',
       drill: {
         brief: '跟同事解释：发请求前压缩上下文、裁掉无关背景能明显降本',
         target_zh: '发请求前压缩上下文、裁掉无关背景能明显降本',
@@ -37,6 +38,8 @@ describe('buildReviewCue', () => {
     });
     expect(cue.brief).toBe('跟同事解释：发请求前压缩上下文、裁掉无关背景能明显降本');
     expect(cue.target_zh).toBe('发请求前压缩上下文、裁掉无关背景能明显降本');
+    expect(cue.trigger).toBe('当对方担心推理成本时，提出先缩减无关上下文');
+    expect(cue.ctx).toBe('当对方担心推理成本时，提出先缩减无关上下文');
   });
 
   it('never mixes Chinese templates with English profile fields', () => {

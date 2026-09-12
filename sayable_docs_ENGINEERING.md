@@ -502,10 +502,6 @@ interface SpeechRecognitionProvider {
   start(options: RecognitionOptions): Promise<RecognitionSession>;
 }
 
-interface PronunciationAssessmentProvider {
-  assess(input: AssessmentInput): Promise<PronunciationResult>;
-}
-
 interface SpeechSynthesisProvider {
   speak(input: SynthesisInput): Promise<SynthesisSession>;
 }
@@ -514,11 +510,10 @@ interface SpeechSynthesisProvider {
 归一化结果至少包含：
 
 - ASR：partial/final 文本、词级起止时间、置信度。
-- MVP 反馈：可懂度、完整度、流利度、节奏及可解释的问题列表。
 - TTS：音频格式、采样率、首包时延、播放状态。
-- 原始词级时间戳：MVP 只在本次评分的内存链路中使用，不写入自动备份；不同厂商分数不得直接横向比较。
+- 原始词级时间戳：只作为识别链路返回的可核对事实，不转换成口语能力评分，也不写入自动备份。
 
-跟读有参考文本，可以评估漏读、增读和节奏；自由表达没有稳定参考文本，只报告转写和流利度，不伪装成精确发音评分。LLM 可以把结构化指标解释成自然语言，但不得生成原始分数。
+MVP 只展示可编辑转写，不根据参考文本、语速、停顿或词时长推断可懂度、流利度或节奏。未来如需发音评测，必须以独立需求接入有可靠依据的专项服务。
 
 ### 13.4 Android 音频链路
 

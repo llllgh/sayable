@@ -137,6 +137,7 @@ export function viewCompress(app) {
         return `<div class="card acc">
           <p class="skel en">${skel(pattern.skeleton)}</p>
           ${pattern.zh ? `<p class="zh sub" style="margin-top:4px">${esc(pattern.zh)}</p>` : ''}
+          ${pattern.trigger ? `<p class="zh" style="margin-top:8px"><b>触发时机：</b>${esc(pattern.trigger)}</p>` : ''}
           ${pattern.why ? `<p class="zh" style="margin-top:8px;font-size:13.5px">${esc(pattern.why)}</p>` : ''}
           ${pattern.seeds.length ? `<ul class="bul en" style="margin-top:8px">${pattern.seeds.map(seed => `<li>${esc(seed)}</li>`).join('')}</ul>` : ''}
           <button class="btn btn-sm ${existing ? 'btn-ghost' : 'btn-pri'}" style="margin-top:11px" data-add="${index}" ${existing ? 'disabled' : ''}>${label}</button>
@@ -203,6 +204,7 @@ export function viewCompress(app) {
       const item = S.addItem({
         skeleton: pattern.skeleton,
         zh: pattern.zh,
+        trigger: pattern.trigger,
         why: pattern.why,
         seeds: pattern.seeds,
         srcKind: 'compress',
@@ -313,6 +315,7 @@ export function viewPreflight(app) {
         ${reuse.length ? reuse.map((x, k) => `<div class="card">
           <p class="skel en">${skel(x.it.skeleton)} <button class="link" data-say="${x.it.id}">🔊</button></p>
           <p class="zh sub" style="margin-top:4px">${esc(x.it.zh)}</p>
+          ${x.it.trigger ? `<p class="zh" style="margin-top:7px"><b>触发时机：</b>${esc(x.it.trigger)}</p>` : ''}
           <p class="tiny zh" style="margin-top:7px">${esc(x.reason || '')}</p>
           <div class="row" style="margin-top:11px">
             <button class="btn btn-sm btn-warm grow" data-warm="${k}">开始练习</button>
@@ -325,6 +328,7 @@ export function viewPreflight(app) {
         ${(r.fresh || []).map((f, k) => `<div class="card violet">
           <p class="skel en">${skel(f.skeleton)} <button class="link" data-sayt="${esc(f.skeleton)}">🔊</button></p>
           <p class="zh sub" style="margin-top:4px">${esc(f.zh || '')}</p>
+          <p class="zh" style="margin-top:8px"><b>触发时机：</b>${esc(f.trigger || '')}</p>
           <p class="zh" style="margin-top:8px;font-size:13.5px">${esc(f.why || '')}</p>
           ${(f.seeds || []).length ? `<ul class="bul en" style="margin-top:8px">${f.seeds.map(s => `<li>${esc(s)}</li>`).join('')}</ul>` : ''}
           <button class="btn btn-sm btn-pri" style="margin-top:11px" data-fresh="${k}">收编</button>
@@ -337,13 +341,13 @@ export function viewPreflight(app) {
       $$('[data-real]', out).forEach(b => b.addEventListener('click', () => { S.markUsedReal(b.dataset.real, sc.slice(0, 40)); toast('已记入真实使用 ✓'); }));
       $$('[data-warm]', out).forEach(b => b.addEventListener('click', () => {
         const x = reuse[+b.dataset.warm];
-        const d = drillCard(x.it, { brief: x.drill || cueFor(x.it).brief, ctx: sc.slice(0, 40), target_zh: x.it.zh }, { label: '热身', onGraded: () => toast('好 —— 20 分钟后真的说出来') });
+        const d = drillCard(x.it, { brief: x.drill || cueFor(x.it).brief, ctx: sc.slice(0, 40), target_zh: x.it.zh, trigger: x.it.trigger || '' }, { label: '热身', onGraded: () => toast('好 —— 20 分钟后真的说出来') });
         $('#pf-d-' + b.dataset.warm).innerHTML = d.html; d.mount(); b.style.display = 'none';
       }));
       $$('[data-fresh]', out).forEach(b => b.addEventListener('click', () => {
         const f = r.fresh[+b.dataset.fresh];
-        const it = S.addItem({ skeleton: f.skeleton, zh: f.zh, why: f.why, seeds: f.seeds || [], drill: f.drill ? { brief: f.drill, target_zh: f.zh } : null, srcKind: 'preflight', raw: sc });
-        const d = drillCard(it, { brief: f.drill || cueFor(it).brief, ctx: sc.slice(0, 40), target_zh: f.zh }, { label: '立刻造句', onGraded: () => toast('收下了 · 明天再问你') });
+        const it = S.addItem({ skeleton: f.skeleton, zh: f.zh, trigger: f.trigger, why: f.why, seeds: f.seeds || [], drill: f.drill ? { brief: f.drill, target_zh: f.zh } : null, srcKind: 'preflight', raw: sc });
+        const d = drillCard(it, { brief: f.drill || cueFor(it).brief, ctx: sc.slice(0, 40), target_zh: f.zh, trigger: f.trigger || '' }, { label: '立刻造句', onGraded: () => toast('收下了 · 明天再问你') });
         $('#pf-drill').innerHTML = d.html; d.mount();
         $('#pf-drill').scrollIntoView({ behavior: 'smooth', block: 'center' });
       }));

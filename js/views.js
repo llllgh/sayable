@@ -12,6 +12,7 @@ import {
   buildReviewCue,
   hasSpecificReviewCue,
 } from '../src/core/review-cue.ts';
+import { canStartRoleplay } from './roleplay.js';
 
 export let go = () => {};                 // 由 main.js 注入路由
 export function bindRouter(fn) { go = fn; }
@@ -28,27 +29,6 @@ async function regenerateCueForItem(item) {
   const drill = await L.regenerateReviewCue(item);
   S.setItemDrill(item.id, drill);
   return cueFor(item);
-}
-
-function speechFeedbackHTML(assessment) {
-  if (!assessment) return '';
-  const metrics = [
-    ['可懂度', assessment.intelligibility],
-    ['完整度', assessment.completeness],
-    ['流利度', assessment.fluency],
-    ['节奏', assessment.rhythm],
-  ];
-  return `<div class="voice-feedback">
-    <div class="row" style="justify-content:space-between">
-      <span class="eyebrow">语音反馈</span>
-      <b class="voice-score">${assessment.overall}</b>
-    </div>
-    <div class="voice-metrics">${metrics.map(([label, score]) => `
-      <div><span>${label}</span><b>${score}</b></div>`).join('')}</div>
-    <p class="tiny zh">${esc(assessment.issues.join('；'))}${
-      assessment.wordsPerMinute ? ` · ${assessment.wordsPerMinute} 词/分钟` : ''
-    }</p>
-  </div>`;
 }
 
 function diffSegmentsHTML(segments, kind) {
@@ -94,6 +74,7 @@ export function drillCard(it, cue, opts = {}) {
     </div>
     <div class="drill-input">
       <p class="zh" id="${id}-cue" style="font-size:17px;font-weight:650;line-height:1.5">${esc(activeCue.brief)}</p>
+      <p class="tiny zh" id="${id}-trigger" style="margin-top:7px" ${activeCue.trigger ? '' : 'hidden'}>触发时机：${esc(activeCue.trigger)}</p>
       ${needsSpecificCue ? `<button class="btn-text" id="${id}-regen-cue" type="button">生成更具体的提示</button>` : ''}
       ${guided ? `<div class="drill-guide">
         <div class="row" style="justify-content:space-between;align-items:flex-start">
@@ -129,7 +110,6 @@ export function drillCard(it, cue, opts = {}) {
     const root = $('#' + id); if (!root) return;
     const ta = $('#' + id + '-a'), out = $('#' + id + '-out');
     let recording = false, done = false;
-    let speechAssessment = null;
     const micButton = $('#' + id + '-mic');
     const submitButton = $('#' + id + '-go');
     const revealButton = $('#' + id + '-reveal');
@@ -161,6 +141,11 @@ export function drillCard(it, cue, opts = {}) {
         activeCue = await regenerateCueForItem(it);
         const cueText = $('#' + id + '-cue');
         if (cueText) cueText.textContent = activeCue.brief;
+        const triggerText = $('#' + id + '-trigger');
+        if (triggerText) {
+          triggerText.textContent = `触发时机：${activeCue.trigger}`;
+          triggerText.hidden = !activeCue.trigger;
+        }
         button.remove();
         toast('具体提示已保存');
       } catch (error) {
@@ -182,9 +167,7 @@ export function drillCard(it, cue, opts = {}) {
       micButton.setAttribute('aria-label', '停止录音');
       SP.listen({
         lang: 'en-US',
-        referenceText: it.skeleton,
         onText: t => { ta.value = t; },
-        onAssessment: assessment => { speechAssessment = assessment; },
         onEnd: stopRecording,
         onError: e => { stopRecording(); toast(e.message); },
       });
@@ -249,10 +232,10 @@ export function drillCard(it, cue, opts = {}) {
         ${judgementDiffHTML(feedback.correction, '需要调整')}
         ${judgementDiffHTML(feedback.tighter, '更紧说法')}
         ${feedback.note ? `<p class="judgement-note zh"><b>为什么：</b>${esc(feedback.note)}</p>` : ''}
-        ${speechFeedbackHTML(speechAssessment)}
         <p class="skel en" style="margin-top:12px">${skel(it.skeleton)} <button class="link" id="${id}-play" style="margin-left:6px">朗读</button></p>
         <div class="row wrap" style="margin-top:13px">
           <button class="btn ${ok ? 'btn-pri' : 'btn-warm'} grow" id="${id}-next">完成</button>
+          ${ok && canStartRoleplay(nxt) ? `<button class="btn btn-ghost" id="${id}-roleplay">情境对话</button>` : ''}
           <button class="btn btn-ghost" id="${id}-used">记录实际使用</button>
         </div>
         <p class="tiny zh" style="margin-top:8px">${ok ? `下次复习：${inWords(nxt.dueAt)}` : '这条会在 8 小时后再次出现。'}</p>
@@ -270,6 +253,7 @@ export function drillCard(it, cue, opts = {}) {
         });
       });
       $('#' + id + '-next')?.addEventListener('click', () => opts.onGraded?.(ok));
+      $('#' + id + '-roleplay')?.addEventListener('click', () => go('roleplay', it.id));
       done = true;
     }
   }
@@ -600,6 +584,7 @@ function renderCaptureResult(out, r, raw, app) {
     <div class="card acc">
       <p class="skel en">${skel(p.skeleton)} <button class="link" id="say-sk" style="margin-left:6px">朗读</button></p>
       <p class="zh" style="margin-top:5px;color:var(--fg-2);font-size:13.5px">${esc(p.zh)}</p>
+      ${p.trigger ? `<p class="zh" style="margin-top:10px"><b>触发时机：</b>${esc(p.trigger)}</p>` : ''}
       <p class="zh" style="margin-top:10px;font-weight:600">${esc(p.why)}</p>
       <div class="chips" style="margin-top:11px">
         ${(p.tags || []).map(t => `<span class="chip">${esc(t)}</span>`).join('')}
@@ -641,7 +626,7 @@ function renderCaptureResult(out, r, raw, app) {
 
   function admit() {
     S.saveDraft('');
-    const it = S.addItem({ skeleton: p.skeleton, zh: p.zh, why: p.why, register: p.register, tags: p.tags, seeds: p.seeds, drill: r.drill || null, srcKind: r.mode === 'fragment' ? 'fragment' : r.mode, raw });
+    const it = S.addItem({ skeleton: p.skeleton, zh: p.zh, trigger: p.trigger, why: p.why, register: p.register, tags: p.tags, seeds: p.seeds, drill: r.drill || null, srcKind: r.mode === 'fragment' ? 'fragment' : r.mode, raw });
     const cue = cueFor(it);
     if (pendingFlashId) { S.dropFlash(pendingFlashId); pendingFlashId = null; }
     const d = drillCard(it, cue, { label: '首次练习', onGraded: () => { toast('已加入句库'); offerExitDrill(it.id); } });
@@ -675,6 +660,7 @@ export function itemSheet(id) {
   openSheet('表达详情', `
     <p class="skel en" style="font-size:21px">${skel(i.skeleton)} <button class="link" id="is-say">朗读</button></p>
     <p class="zh sub" style="margin-top:5px">${esc(i.zh)}</p>
+    <p class="zh" id="is-trigger" style="margin-top:11px" ${i.trigger ? '' : 'hidden'}><b>触发时机：</b><span>${esc(i.trigger)}</span></p>
     <div class="chips" style="margin-top:11px">${srcPill(i.source.kind)}
       <span class="chip ${i.status === 'owned' ? 'acc' : ''}">${i.status === 'owned' ? '已掌握' : i.status === 'retired' ? '已归档' : '学习中'}</span>
       <span class="chip">使用 ${i.usedReal.length} 次</span></div>
@@ -694,7 +680,7 @@ export function itemSheet(id) {
     <div class="card flat" style="margin-top:9px">
       <p class="zh" id="is-cue-text">${esc(currentCue.brief)}</p>
       <div class="row" style="margin-top:10px;justify-content:space-between">
-        <p class="tiny zh" id="is-cue-status">${hasSpecificReviewCue(i) ? '已保存具体提示' : '旧条目尚未生成具体提示'}</p>
+        <p class="tiny zh" id="is-cue-status">${hasSpecificReviewCue(i) && i.trigger ? '已保存触发时机与具体提示' : '可补充触发时机与具体提示'}</p>
         <button class="btn btn-ghost btn-sm" id="is-cue-regenerate" type="button">${hasSpecificReviewCue(i) ? '重新生成' : '生成具体提示'}</button>
       </div>
     </div>
@@ -709,10 +695,15 @@ export function itemSheet(id) {
 
     <div class="row" style="margin-top:18px">
       <button class="btn btn-pri grow btn-sm" id="is-drill">现在练一次</button>
+      ${canStartRoleplay(i) ? '<button class="btn btn-ghost btn-sm" id="is-roleplay">情境对话</button>' : ''}
       <button class="btn btn-ghost btn-sm" id="is-used">记录已使用</button>
       <button class="btn btn-ghost btn-sm" id="is-ret">${i.status === 'retired' ? '恢复' : '归档'}</button>
     </div>`, () => {
     $('#is-say').addEventListener('click', () => SP.say(i.skeleton));
+    $('#is-roleplay')?.addEventListener('click', () => {
+      closeSheet();
+      go('roleplay', i.id);
+    });
     $('#is-used').addEventListener('click', () => { S.markUsedReal(i.id, ''); closeSheet(); toast('已记入真实使用 ✓'); go(location.hash.slice(1) || 'home'); });
     $('#is-ret').addEventListener('click', () => { i.status === 'retired' ? S.revive(i.id) : S.retire(i.id); closeSheet(); toast('已更新'); go(location.hash.slice(1) || 'home'); });
     $('#is-cue-regenerate').addEventListener('click', async () => {
@@ -725,7 +716,12 @@ export function itemSheet(id) {
         const cue = await regenerateCueForItem(i);
         const cueText = $('#is-cue-text');
         if (cueText) cueText.textContent = cue.brief;
-        status.textContent = '已保存具体提示';
+        const triggerText = $('#is-trigger');
+        if (triggerText) {
+          triggerText.querySelector('span').textContent = cue.trigger;
+          triggerText.hidden = !cue.trigger;
+        }
+        status.textContent = '已保存触发时机与具体提示';
         button.textContent = '重新生成';
         toast('具体提示已保存');
       } catch (error) {

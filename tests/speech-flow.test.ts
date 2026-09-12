@@ -98,6 +98,52 @@ describe('speech input lifecycle', () => {
     expect(nativeSpeech.addListener).not.toHaveBeenCalled();
   });
 
+  it('forwards ASR text and timing facts without generating a score', async () => {
+    const listeners = new Map<string, (event: any) => void>();
+    nativeSpeech.checkPermissions.mockResolvedValue({
+      microphone: 'granted',
+    });
+    nativeSpeech.addListener.mockImplementation(async (
+      eventName: string,
+      listener: (event: any) => void,
+    ) => {
+      listeners.set(eventName, listener);
+      return { remove: vi.fn().mockResolvedValue(undefined) };
+    });
+    const onResult = vi.fn();
+
+    await startCloudRecognition({
+      profile,
+      apiKey: 'speech-key',
+      onResult,
+    });
+    listeners.get('speechResult')?.({
+      text: 'My only concern is the timeline',
+      final: true,
+      durationMs: 2_400,
+      words: [{ text: 'concern', startMs: 300, endMs: 650 }],
+    });
+
+    expect(onResult).toHaveBeenCalledWith({
+      text: 'My only concern is the timeline',
+      final: true,
+      durationMs: 2_400,
+      words: [{ text: 'concern', startMs: 300, endMs: 650 }],
+    });
+  });
+
+  it('does not contain the retired speech assessment pipeline', () => {
+    const speech = readFileSync('js/speech.js', 'utf8');
+    const views = readFileSync('js/views.js', 'utf8');
+
+    expect(speech).not.toContain('assessSpeech');
+    expect(speech).not.toContain('onAssessment');
+    expect(views).not.toContain('speechFeedbackHTML');
+    expect(views).not.toContain('voice-score');
+    expect(views).not.toContain('可懂度');
+    expect(views).not.toContain('流利度');
+  });
+
   it('stops capture recording before reading input for analysis', () => {
     const source = readFileSync('js/views.js', 'utf8');
     const captureView = source.slice(

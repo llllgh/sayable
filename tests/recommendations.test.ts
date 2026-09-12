@@ -14,6 +14,7 @@ function candidates(count = 5) {
   return Array.from({ length: count }, (_, index) => ({
     skeleton: `move from X to Y ${index}`,
     zh: `从 X 转向 Y ${index}`,
+    trigger: `当讨论方案 ${index} 的推进路径时，说明需要改变方向`,
     why: `适合场景 ${index}`,
     example: `We moved from option ${index} to a clearer plan.`,
     drill: `说明第 ${index} 个变化`,
@@ -125,6 +126,11 @@ describe('daily recommendations', () => {
       .toBe(false);
     expect(recommendationSchema.safeParse({ items: candidates() }).success)
       .toBe(true);
+
+    const missingTrigger = candidates();
+    delete (missingTrigger[0] as Partial<(typeof missingTrigger)[number]>).trigger;
+    expect(recommendationSchema.safeParse({ items: missingTrigger }).success)
+      .toBe(false);
   });
 
   it('keeps the route, swipe controls, and collection path wired', () => {
@@ -148,6 +154,7 @@ describe('daily recommendations', () => {
     expect(view).not.toContain('替换后开始练习');
     expect(view).not.toContain('继续深入练习');
     expect(view).toContain('target_zh: recommendation.zh');
+    expect(view).toContain('trigger: recommendation.trigger');
     expect(home).not.toContain('cap-swap');
     expect(secondary).not.toContain('S.budgetLeft');
     expect(secondary).not.toContain('本周名额已满');

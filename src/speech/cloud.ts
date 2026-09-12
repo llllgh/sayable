@@ -7,7 +7,7 @@ import {
 } from '@capacitor/core';
 import { Directory, Filesystem } from '@capacitor/filesystem';
 import type { ServiceProfile } from './profiles';
-import type { SpeechTiming, SpeechWord } from './assessment';
+import type { SpeechTiming, SpeechWord } from './types';
 
 export interface CloudSpeechResult extends SpeechTiming {
   text: string;

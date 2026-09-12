@@ -21,6 +21,7 @@ describe('compression history records', () => {
         patterns: [{
           skeleton: 'shift from X to Y',
           zh: '从 X 转向 Y',
+          trigger: '当讨论重点发生变化时，明确说明转移方向',
           why: '直接表达变化',
           seeds: ['The focus shifted from speed to quality.'],
         }],
@@ -32,6 +33,7 @@ describe('compression history records', () => {
     expect(record.patterns[0]).toMatchObject({
       skeleton: 'shift from X to Y',
       zh: '从 X 转向 Y',
+      trigger: '当讨论重点发生变化时，明确说明转移方向',
     });
   });
 
@@ -49,6 +51,7 @@ describe('compression history records', () => {
     expect(record?.patterns).toEqual([{
       skeleton: 'remain available for X',
       zh: '',
+      trigger: '',
       why: '',
       seeds: [],
     }]);

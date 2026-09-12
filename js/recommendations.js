@@ -89,6 +89,7 @@ function mountPractice(app, recommendation) {
     item = S.addItem({
       skeleton: recommendation.skeleton,
       zh: recommendation.zh,
+      trigger: recommendation.trigger,
       why: recommendation.why,
       register: recommendation.register,
       tags: recommendation.tags,
@@ -114,6 +115,7 @@ function mountPractice(app, recommendation) {
     brief: recommendation.drill,
     ctx: context,
     target_zh: recommendation.zh,
+    trigger: recommendation.trigger,
   }, {
     label: '今日推荐 · 深入练习',
     onGraded: () => {
@@ -225,8 +227,8 @@ function renderDeck(app, deck) {
       </div>
 
       <div class="recommendation-fit">
-        <span class="eyebrow">适用场景</span>
-        <p class="zh">${esc(recommendation.why)}</p>
+        <span class="eyebrow">触发时机</span>
+        <p class="zh">${esc(recommendation.trigger)}</p>
       </div>
     </article>
 

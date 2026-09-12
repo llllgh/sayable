@@ -44,6 +44,7 @@ describe('persisted state migration', () => {
       items: [],
       inbox: [],
       compressions: [],
+      roleplaySessions: [],
       dailyRecommendations: null,
       notificationReplies: [],
     })).toEqual({
@@ -52,6 +53,7 @@ describe('persisted state migration', () => {
       items: [],
       inbox: [],
       compressions: [],
+      roleplaySessions: [],
       dailyRecommendations: null,
       notificationReplies: [],
       settings: {
@@ -108,11 +110,12 @@ describe('persisted state migration', () => {
       variety: 'international',
       englishLevel: null,
     });
-    expect(migrated.items).toEqual([userItem]);
+    expect(migrated.items).toEqual([{ ...userItem, trigger: '' }]);
     expect(migrated.inbox).toEqual([{ id: 'user-inbox', source: 'app', text: 'mine' }]);
     expect(migrated.compressions).toEqual([
       { id: 'user-compression', long: 'My long text', short: 'My short text', longWords: 3, shortWords: 3 },
     ]);
+    expect(migrated.roleplaySessions).toEqual([]);
     expect(migrated.notificationReplies).toEqual([{ itemId: 'user-item', answer: 'mine' }]);
     expect(migrated.settings).toEqual({
       baseUrl: 'https://provider.example/v1',
@@ -242,5 +245,52 @@ describe('persisted state migration', () => {
     expect(migrated.formatVersion).toBe(CURRENT_STATE_FORMAT_VERSION);
     expect(migrated.dailyRecommendations.currentIndex).toBe(1);
     expect(migrated.dailyRecommendations.items).toHaveLength(5);
+    expect(migrated.dailyRecommendations.items[0].trigger)
+      .toBe('适合当前沟通场景');
+  });
+
+  it('backfills an old item trigger only from a structured review cue', () => {
+    const migrated = migratePersistedState({
+      formatVersion: 7,
+      items: [
+        {
+          id: 'with-cue',
+          skeleton: 'move from X to Y',
+          drill: {
+            brief: '当客户担心一次性投入过大时，提出先做小范围试点',
+            target_zh: '我们可以先在一个部门试点，再推广到整个组织',
+          },
+        },
+        {
+          id: 'without-cue',
+          skeleton: 'X remains unclear',
+          why: '这个表达适合澄清问题',
+        },
+      ],
+    }) as Record<string, any>;
+
+    expect(migrated.items[0].trigger)
+      .toBe('当客户担心一次性投入过大时，提出先做小范围试点');
+    expect(migrated.items[1].trigger).toBe('');
+  });
+
+  it('preserves existing roleplay sessions and initializes missing storage', () => {
+    const session = {
+      id: 'roleplay-1',
+      itemId: 'item-1',
+      startedAt: 100,
+      completedAt: 0,
+      scenario: '客户担心风险',
+      role: '客户 CTO',
+      turns: [{ speaker: 'ai', text: 'How would you reduce the risk?', at: 100 }],
+      result: null,
+    };
+    const migrated = migratePersistedState({
+      formatVersion: 8,
+      items: [],
+      roleplaySessions: [session],
+    }) as Record<string, any>;
+
+    expect(migrated.roleplaySessions).toEqual([session]);
   });
 });

@@ -65,6 +65,8 @@ sayable/
 
 ## 3. 数据模型（SQLite）
 
+当前原生端以 `app_state.json` 快照事务化写入 SQLite；下表是逻辑模型和未来拆表边界。Level 4 会话当前对应 `state.roleplaySessions`，不单独建表。
+
 ```sql
 -- 迁移版本
 CREATE TABLE schema_version (version INTEGER NOT NULL);
@@ -86,6 +88,7 @@ CREATE TABLE item (
   skeleton      TEXT NOT NULL,           -- The bottleneck has shifted from X to Y.
   slots         TEXT NOT NULL,           -- JSON: ["X","Y"]
   gloss_zh      TEXT NOT NULL,           -- 中文语义提示（出题用）
+  trigger_zh    TEXT,                    -- 情境信号 + 沟通意图（调用线索）
   why_good      TEXT,
   origin_raw    TEXT,                    -- 来源原文
   origin_flash  TEXT REFERENCES flash(id),

@@ -11,7 +11,7 @@ import {
 } from '../llm/profiles';
 import { normalizeDailyRecommendationDeck } from '../core/recommendations';
 
-export const CURRENT_STATE_FORMAT_VERSION = 7;
+export const CURRENT_STATE_FORMAT_VERSION = 9;
 
 type JsonRecord = Record<string, unknown>;
 
@@ -88,6 +88,17 @@ function compressionSignature(compression: unknown): string {
   ].join('\u001f'));
 }
 
+function migrateItemTrigger(item: unknown): unknown {
+  if (!isRecord(item)) return item;
+  const existing = String(item.trigger ?? '').trim();
+  const drill = isRecord(item.drill) ? item.drill : null;
+  const trigger = existing || String(drill?.brief ?? '').trim();
+  return {
+    ...item,
+    trigger,
+  };
+}
+
 function migrateSettings(value: unknown): JsonRecord {
   const settings: JsonRecord = isRecord(value) ? { ...value } : {};
   delete settings.maxTokens;
@@ -134,13 +145,15 @@ export function migratePersistedState(input: unknown): unknown {
 
   const oldItems = Array.isArray(input.items) ? input.items : [];
   const removedItemIds = new Set<string>();
-  const items = oldItems.filter((item) => {
-    const remove = LEGACY_DEMO_ITEM_SIGNATURES.has(itemSignature(item));
-    if (remove && isRecord(item) && typeof item.id === 'string') {
-      removedItemIds.add(item.id);
-    }
-    return !remove;
-  });
+  const items = oldItems
+    .filter((item) => {
+      const remove = LEGACY_DEMO_ITEM_SIGNATURES.has(itemSignature(item));
+      if (remove && isRecord(item) && typeof item.id === 'string') {
+        removedItemIds.add(item.id);
+      }
+      return !remove;
+    })
+    .map(migrateItemTrigger);
 
   const inbox = (Array.isArray(input.inbox) ? input.inbox : []).filter(
     (entry) => !isRecord(entry) || entry.source !== 'demo',
@@ -165,6 +178,9 @@ export function migratePersistedState(input: unknown): unknown {
     items,
     inbox,
     compressions,
+    roleplaySessions: Array.isArray(input.roleplaySessions)
+      ? input.roleplaySessions
+      : [],
     dailyRecommendations: normalizeDailyRecommendationDeck(
       input.dailyRecommendations,
     ),

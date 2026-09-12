@@ -1,6 +1,7 @@
 export interface CompressionPattern {
   skeleton: string;
   zh: string;
+  trigger: string;
   why: string;
   seeds: string[];
 }
@@ -56,7 +57,9 @@ function positiveInteger(value: unknown): number {
 function normalizePattern(value: unknown): CompressionPattern | null {
   if (typeof value === 'string') {
     const skeleton = value.trim();
-    return skeleton ? { skeleton, zh: '', why: '', seeds: [] } : null;
+    return skeleton
+      ? { skeleton, zh: '', trigger: '', why: '', seeds: [] }
+      : null;
   }
   if (!isRecord(value)) return null;
   const skeleton = text(value.skeleton);
@@ -64,6 +67,7 @@ function normalizePattern(value: unknown): CompressionPattern | null {
   return {
     skeleton,
     zh: text(value.zh),
+    trigger: text(value.trigger),
     why: text(value.why),
     seeds: Array.isArray(value.seeds)
       ? value.seeds.map(text).filter(Boolean).slice(0, 3)

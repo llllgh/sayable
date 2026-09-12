@@ -7,6 +7,9 @@ export const LLM_OUTPUT_TOKENS = {
   compress: 8_192,
   meetingPreflight: 8_192,
   recommendation: 8_192,
+  roleplayStart: 4_096,
+  roleplayContinue: 4_096,
+  roleplayJudge: 4_096,
 } as const;
 
 export const LLM_REQUEST_TIMEOUT_MS = 60_000;

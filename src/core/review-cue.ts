@@ -8,6 +8,7 @@ export interface ReviewCueDrill {
 export interface ReviewCueItem {
   box: number;
   zh?: string;
+  trigger?: string;
   drill?: ReviewCueDrill | string | null;
 }
 
@@ -15,6 +16,7 @@ export interface ReviewCue {
   brief: string;
   ctx: string;
   target_zh: string;
+  trigger: string;
 }
 
 function clean(value: unknown): string {
@@ -41,6 +43,7 @@ export function buildReviewCue(item: ReviewCueItem): ReviewCue {
   const drill = drillFor(item);
   const meaning = clean(drill.target_zh) || clean(item.zh);
   const scenarioTask = clean(drill.brief);
+  const trigger = clean(item.trigger);
   const guided = reviewPromptMode(item.box) === 'guided';
 
   if (guided && meaning) {
@@ -48,14 +51,16 @@ export function buildReviewCue(item: ReviewCueItem): ReviewCue {
       brief: `用英文说出下面这句话的意思：${meaning}`,
       ctx: meaning,
       target_zh: meaning,
+      trigger,
     };
   }
 
   if (scenarioTask) {
     return {
       brief: scenarioTask,
-      ctx: meaning || scenarioTask,
+      ctx: trigger || meaning || scenarioTask,
       target_zh: meaning,
+      trigger,
     };
   }
 
@@ -64,6 +69,7 @@ export function buildReviewCue(item: ReviewCueItem): ReviewCue {
       brief: `回想并用英文说出这个意思：${meaning}`,
       ctx: meaning,
       target_zh: meaning,
+      trigger,
     };
   }
 
@@ -71,5 +77,6 @@ export function buildReviewCue(item: ReviewCueItem): ReviewCue {
     brief: '用这个表达，就你手头正在推进的一件事，完整说一句英文。',
     ctx: '',
     target_zh: '',
+    trigger,
   };
 }

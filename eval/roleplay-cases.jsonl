@@ -1,0 +1,20 @@
+{"id":"rollout-01","skeleton":"A good starting point would be to X before scaling to Y.","trigger":"当客户担心一次性投入过大时，提出先小范围试点","role":"客户 CTO","opening_intent":"表达对全量上线治理风险的担忧","must_not_contain":["good starting point","before scaling"]}
+{"id":"scope-02","skeleton":"For now, I'd keep X focused on Y.","trigger":"当讨论范围不断扩大时，主动收窄当前阶段目标","role":"项目负责人","opening_intent":"提出多个额外需求并询问能否同时完成","must_not_contain":["keep it focused"]}
+{"id":"clarify-03","skeleton":"In terms of X, what kind of Y are you targeting?","trigger":"当需求缺少可量化边界时，主动追问目标指标","role":"客户架构师","opening_intent":"只说系统要支持很大规模但不给指标","must_not_contain":["what kind of","are you targeting"]}
+{"id":"tradeoff-04","skeleton":"The trade-off is between X and Y.","trigger":"当两个目标无法同时最大化时，明确指出取舍","role":"产品负责人","opening_intent":"同时要求最低成本和最高性能","must_not_contain":["trade-off is between"]}
+{"id":"bottleneck-05","skeleton":"The bottleneck has shifted from X to Y.","trigger":"当旧问题已解决但整体效果仍未提升时，指出新瓶颈","role":"研发负责人","opening_intent":"说明模型速度提升后用户体验仍无改善","must_not_contain":["bottleneck has shifted"]}
+{"id":"priority-06","skeleton":"What matters most here is X, not Y.","trigger":"当讨论被次要细节带偏时，重新聚焦核心判断标准","role":"客户经理","opening_intent":"持续讨论界面细节但忽略上线目标","must_not_contain":["what matters most"]}
+{"id":"dependency-07","skeleton":"X depends on whether Y.","trigger":"当对方要求立即承诺结果但关键条件未确定时，说明依赖关系","role":"业务负责人","opening_intent":"要求在数据尚未确认时承诺准确率","must_not_contain":["depends on whether"]}
+{"id":"assumption-08","skeleton":"That assumes X, which may not hold if Y.","trigger":"当方案建立在未经验证的前提上时，指出假设风险","role":"解决方案架构师","opening_intent":"默认所有部门流程完全一致","must_not_contain":["that assumes","may not hold"]}
+{"id":"evidence-09","skeleton":"We'd need to validate X before concluding Y.","trigger":"当对方根据有限样本下结论时，建议先补验证","role":"客户数据负责人","opening_intent":"根据一次演示判断方案可全面推广","must_not_contain":["need to validate","before concluding"]}
+{"id":"sequence-10","skeleton":"Before we X, we need to Y.","trigger":"当对方跳过必要前置条件时，说明正确推进顺序","role":"项目经理","opening_intent":"计划在权限设计完成前直接上线","must_not_contain":["before we","we need to"]}
+{"id":"risk-11","skeleton":"The main risk isn't X; it's Y.","trigger":"当团队关注表面风险而忽略主要风险时，重新定义风险重点","role":"安全负责人","opening_intent":"只担心模型能力但忽略系统接入治理","must_not_contain":["main risk isn't"]}
+{"id":"alignment-12","skeleton":"Are we aligned on X before we move to Y?","trigger":"当会议即将进入下一议题但关键共识未确认时，主动确认一致","role":"跨部门负责人","opening_intent":"准备结束需求讨论并进入排期","must_not_contain":["are we aligned","before we move"]}
+{"id":"constraint-13","skeleton":"Given X, the most practical option is Y.","trigger":"当存在明确资源或时间约束时，提出务实方案","role":"交付负责人","opening_intent":"说明上线时间固定且工程资源有限","must_not_contain":["most practical option"]}
+{"id":"fallback-14","skeleton":"If X doesn't work, we can fall back to Y.","trigger":"当对方担心方案失败后没有退路时，给出回退路径","role":"客户运维负责人","opening_intent":"询问新方案异常时如何保证连续性","must_not_contain":["fall back to"]}
+{"id":"phasing-15","skeleton":"We can phase X by starting with Y.","trigger":"当整体变更范围过大时，提出分阶段执行方式","role":"变更管理负责人","opening_intent":"担心同时改造所有团队影响过大","must_not_contain":["we can phase","starting with"]}
+{"id":"cause-16","skeleton":"This is less about X and more about Y.","trigger":"当问题被错误归因时，把讨论转向更关键原因","role":"产品总监","opening_intent":"把低采用率完全归因于模型准确率","must_not_contain":["less about","more about"]}
+{"id":"boundary-17","skeleton":"X is in scope; Y isn't, at least for now.","trigger":"当对方临时增加需求时，明确当前范围边界","role":"客户项目经理","opening_intent":"要求本阶段额外覆盖新的业务流程","must_not_contain":["in scope","isn't"]}
+{"id":"decision-18","skeleton":"The decision comes down to X.","trigger":"当讨论信息很多但需要形成决策时，概括决定性因素","role":"管理层评审人","opening_intent":"要求团队在多个方案中给出最终建议","must_not_contain":["comes down to"]}
+{"id":"uncertainty-19","skeleton":"It's too early to say X, but we can confirm Y.","trigger":"当证据不足以给出最终结论时，区分未知与已知","role":"客户业务负责人","opening_intent":"在试点刚开始时追问最终收益","must_not_contain":["too early to say","we can confirm"]}
+{"id":"next-step-20","skeleton":"The next step is to X, so we can Y.","trigger":"当会议讨论充分但缺少行动项时，提出明确下一步及目的","role":"会议主持人","opening_intent":"询问会后如何继续推进","must_not_contain":["next step is","so we can"]}

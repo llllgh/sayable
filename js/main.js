@@ -4,6 +4,7 @@ import { $, $$, closeSheet, toast } from './ui.js';
 import { viewHome, viewCapture, viewDrillItem, bindRouter } from './views.js';
 import { viewCompress, viewPreflight, viewLibrary, profileSheet, settingsSheet, onboardingSheet } from './views2.js';
 import { viewRecommendations } from './recommendations.js';
+import { viewRoleplay } from './roleplay.js';
 import { initNetwork } from '../src/platform/network.ts';
 import { initializePlatform } from '../src/platform/lifecycle.ts';
 import { processOutbox } from '../src/outbox.ts';
@@ -29,6 +30,10 @@ const ROUTES = {
 };
 
 function go(route, arg) {
+  if (route === 'roleplay' && arg) {
+    openRoleplay(arg);
+    return;
+  }
   const r = ROUTES[route] ? route : 'home';
   if (location.hash.slice(1) !== r) history.replaceState(null, '', '#' + r);
   const activeTab = r === 'recommend' ? 'home' : r;
@@ -49,6 +54,13 @@ function openDrill(itemId, answer = '') {
   viewDrillItem(app, itemId, answer);
 }
 
+function openRoleplay(itemId) {
+  history.replaceState(null, '', '#roleplay/' + encodeURIComponent(itemId));
+  $$('#tabbar .tab').forEach(t => t.classList.remove('on'));
+  window.scrollTo({ top: 0, behavior: 'instant' });
+  viewRoleplay(app, itemId);
+}
+
 function refreshChip() {
   const c = $('#mode-chip');
   const live = S.isLive();
@@ -66,6 +78,8 @@ window.addEventListener('hashchange', () => {
   const hash = location.hash.slice(1);
   if (hash.startsWith('drill/')) {
     openDrill(decodeURIComponent(hash.slice('drill/'.length)));
+  } else if (hash.startsWith('roleplay/')) {
+    openRoleplay(decodeURIComponent(hash.slice('roleplay/'.length)));
   } else {
     go(hash);
   }
@@ -74,6 +88,8 @@ window.addEventListener('hashchange', () => {
 const initialHash = location.hash.slice(1);
 if (initialHash.startsWith('drill/')) {
   openDrill(decodeURIComponent(initialHash.slice('drill/'.length)));
+} else if (initialHash.startsWith('roleplay/')) {
+  openRoleplay(decodeURIComponent(initialHash.slice('roleplay/'.length)));
 } else {
   go(initialHash || 'home');
 }

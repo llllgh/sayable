@@ -9,7 +9,6 @@ import {
   isCloudSpeechReady,
   state,
 } from './store.js';
-import { assessSpeech } from '../src/speech/assessment.ts';
 import {
   canUseCloudRecognition,
   cancelCloudRecognition,
@@ -63,13 +62,6 @@ export function listen(options) {
         if (generation !== cloudGeneration) return;
         latest = result;
         options.onText?.(result.text, result.final ? result.text : '');
-        if (result.final) {
-          options.onAssessment?.(assessSpeech(
-            options.referenceText || '',
-            result.text,
-            result,
-          ));
-        }
       },
       onEnd: () => {
         if (generation !== cloudGeneration) return;

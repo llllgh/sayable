@@ -15,6 +15,7 @@ export const captureSchema = z.object({
   primary: z.object({
     skeleton: z.string().min(1),
     zh: z.string().min(1),
+    trigger: z.string().trim().min(1),
     why: z.string().min(1),
     register: z.enum(['meeting', 'email', 'casual']).catch('meeting'),
     tags: z.array(z.string()).max(6).catch([]),
@@ -35,6 +36,7 @@ export const captureSchema = z.object({
 export const reviewCueSchema = z.object({
   brief: z.string().trim().min(1),
   target_zh: z.string().trim().min(1),
+  trigger: z.string().trim().min(1),
 }).strict();
 
 export const judgeSchema = z.object({
@@ -59,6 +61,7 @@ export const compressSchema = z.object({
   patterns: z.array(z.object({
     skeleton: z.string().min(1),
     zh: z.string().catch(''),
+    trigger: z.string().trim().min(1),
     why: z.string().catch(''),
     seeds: z.array(z.string()).catch([]),
   })).max(2),
@@ -73,10 +76,11 @@ export const preflightSchema = z.object({
   fresh: z.array(z.object({
     skeleton: z.string().min(1),
     zh: z.string().catch(''),
+    trigger: z.string().trim().min(1),
     why: z.string().catch(''),
     seeds: z.array(z.string()).catch([]),
     drill: z.string().catch(''),
-  })).max(2).catch([]),
+  })).max(2).default([]),
   avoid: z.string().catch(''),
 }).passthrough();
 
@@ -84,6 +88,7 @@ export const recommendationSchema = z.object({
   items: z.array(z.object({
     skeleton: z.string().min(1),
     zh: z.string().min(1),
+    trigger: z.string().trim().min(1),
     why: z.string().min(1),
     example: z.string().min(1),
     drill: z.string().min(1),
@@ -103,3 +108,26 @@ export const recommendationSchema = z.object({
     });
   }
 });
+
+export const roleplayStartSchema = z.object({
+  role: z.string().trim().min(1),
+  scenario: z.string().trim().min(1),
+  opening: z.string().trim().min(1),
+}).strict();
+
+export const roleplayContinueSchema = z.object({
+  followup: z.string().trim().min(1),
+}).strict();
+
+export const roleplayJudgeSchema = z.object({
+  trigger_recognized: z.boolean(),
+  intent_achieved: z.boolean(),
+  used_target: z.boolean(),
+  issue_level: z.enum(['none', 'minor', 'blocking']),
+  clear: z.boolean(),
+  concise: z.boolean(),
+  verdict: z.string().trim().min(1),
+  fix: nullableText,
+  tighter: nullableText,
+  note: z.string().catch(''),
+}).strict();

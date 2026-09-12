@@ -3,12 +3,14 @@ import { describe, expect, it } from 'vitest';
 import { reviewCueSchema } from '../src/llm/schemas';
 
 describe('review cue regeneration', () => {
-  it('requires both a concrete task and its complete Chinese meaning', () => {
+  it('requires a trigger, a concrete task, and its complete Chinese meaning', () => {
     expect(reviewCueSchema.safeParse({
+      trigger: '当对方担心请求成本时，提出先压缩无关上下文',
       brief: '当你想跟同事说明：压缩上下文能明显降低请求成本',
       target_zh: '发送请求前压缩上下文并裁掉无关背景能明显降低成本',
     }).success).toBe(true);
     expect(reviewCueSchema.safeParse({
+      trigger: '',
       brief: '聊聊成本',
       target_zh: '',
     }).success).toBe(false);
