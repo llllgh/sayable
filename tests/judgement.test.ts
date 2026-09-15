@@ -5,6 +5,7 @@ import {
   normalizeJudgementText,
   resolveJudgement,
 } from '../src/core/judgement';
+import { judgeSchema } from '../src/llm/schemas';
 import { ladderHTML } from '../js/ui.js';
 
 describe('judgement', () => {
@@ -69,6 +70,45 @@ describe('judgement', () => {
       .toEqual(['helps']);
   });
 
+  it('requires a complete fix for minor issues and forbids one for none', () => {
+    const base = {
+      ok: true,
+      used_target: true,
+      meaning_intact: true,
+      verdict: '通过。',
+      tighter: null,
+      note: '',
+    };
+
+    expect(judgeSchema.safeParse({
+      ...base,
+      issue_level: 'minor',
+      fix: null,
+    }).success).toBe(false);
+    expect(judgeSchema.safeParse({
+      ...base,
+      issue_level: 'none',
+      fix: 'This should not be present.',
+    }).success).toBe(false);
+  });
+
+  it('marks a passing answer with a substantive fix as needing correction', () => {
+    const feedback = buildJudgementFeedback(
+      'They have real requirements to AI infrastructure.',
+      {
+        ok: true,
+        issue_level: 'minor',
+        fix: 'They have real requirements for AI infrastructure.',
+        tighter: 'They show a real need for AI infrastructure.',
+        note: 'requirements 与 for 搭配。',
+      },
+    );
+
+    expect(feedback.kind).toBe('passed_with_correction');
+    expect(feedback.correction).not.toBeNull();
+    expect(feedback.tighter).toBeNull();
+  });
+
   it('uses the formatting gate before showing model feedback', () => {
     expect(buildJudgementFeedback(
       'A Typical RD. Can use 10 million tokens. Per day.',
@@ -80,6 +120,7 @@ describe('judgement', () => {
         note: '断句可以更完整。',
       },
     )).toEqual({
+      kind: 'passed',
       verdict: '通过，骨架和表达都对，没有需要改的地方。',
       note: '',
       correction: null,
@@ -102,6 +143,7 @@ describe('judgement', () => {
 
     expect(feedback.correction).toBeNull();
     expect(feedback.tighter?.changes.length).toBeGreaterThan(0);
+    expect(feedback.kind).toBe('passed');
     expect(feedback.verdict).toBe(
       '通过，骨架和表达都对。下面是一种更紧凑的说法。',
     );

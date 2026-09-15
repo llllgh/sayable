@@ -9,7 +9,7 @@ describe('communicative intent trigger', () => {
   it('is required for every model-generated expression source', () => {
     const capture = {
       read: '用户希望提出分阶段上线',
-      natural: 'A good starting point would be to pilot this first.',
+      natural: 'A good starting point would be to pilot this before scaling up.',
       spoken: null,
       diagnosis: { symptom: null, before: null, after: null },
       primary: {
@@ -33,6 +33,31 @@ describe('communicative intent trigger', () => {
     expect(captureSchema.safeParse({
       ...capture,
       primary: { ...capture.primary, trigger: ' ' },
+    }).success).toBe(false);
+
+    expect(captureSchema.safeParse({
+      ...capture,
+      bonus: {
+        skeleton: 'X alone would be enough to Y',
+        zh: '仅凭 X 就足以 Y',
+        trigger: '当需要强调单一证据已经足够时，用它得出结论',
+        why: '适合强调决定性证据',
+        register: 'meeting',
+        tags: ['强调'],
+        seeds: ['The demo alone would be enough to convince them.'],
+        drill: {
+          brief: '说明仅凭试点结果就足以支持扩大范围',
+          target_zh: '仅凭试点结果就足以支持扩大范围',
+        },
+      },
+    }).success).toBe(true);
+
+    expect(captureSchema.safeParse({
+      ...capture,
+      bonus: {
+        skeleton: 'X alone would be enough to Y',
+        zh: '仅凭 X 就足以 Y',
+      },
     }).success).toBe(false);
 
     const compression = {

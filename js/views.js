@@ -212,6 +212,16 @@ export function drillCard(it, cue, opts = {}) {
 
     function finish(ok, r, ans) {
       const feedback = buildJudgementFeedback(ans, { ...r, ok });
+      const feedbackLabel = feedback.kind === 'passed'
+        ? '通过'
+        : feedback.kind === 'passed_with_correction'
+          ? '通过，但需纠正'
+          : '再练一次';
+      const feedbackColor = feedback.kind === 'passed'
+        ? 'var(--acc)'
+        : feedback.kind === 'passed_with_correction'
+          ? 'var(--warm)'
+          : 'var(--rose)';
       S.grade(it.id, ok, {
         answer: ans,
         ms: Date.now() - t0,
@@ -225,12 +235,17 @@ export function drillCard(it, cue, opts = {}) {
       out.innerHTML = `
       <div class="drill-result">
         <div class="row" style="justify-content:space-between;margin-bottom:8px">
-          <span class="eyebrow" style="color:${ok ? 'var(--acc)' : 'var(--rose)'}">${ok ? '通过' : '再练一次'}</span>
+          <span class="eyebrow" style="color:${feedbackColor}">${feedbackLabel}</span>
           ${ladderHTML(nxt.box, nxt.status === 'owned', { labeled: true })}
         </div>
         <p class="zh" style="font-weight:600">${esc(feedback.verdict)}</p>
-        ${judgementDiffHTML(feedback.correction, '需要调整')}
-        ${judgementDiffHTML(feedback.tighter, '更紧说法')}
+        ${judgementDiffHTML(
+          feedback.correction,
+          feedback.kind === 'passed_with_correction'
+            ? '需要纠正（不影响本次通过）'
+            : '需要纠正',
+        )}
+        ${judgementDiffHTML(feedback.tighter, '可选精简')}
         ${feedback.note ? `<p class="judgement-note zh"><b>为什么：</b>${esc(feedback.note)}</p>` : ''}
         <p class="skel en" style="margin-top:12px">${skel(it.skeleton)} <button class="link" id="${id}-play" style="margin-left:6px">朗读</button></p>
         <div class="row wrap" style="margin-top:13px">
@@ -547,6 +562,10 @@ export function viewCapture(app, arg) {
 
 function renderCaptureResult(out, r, raw, app) {
   const p = r.primary;
+  const primaryExisting = S.findItemBySkeleton(p.skeleton);
+  const bonusExisting = r.bonus?.skeleton
+    ? S.findItemBySkeleton(r.bonus.skeleton)
+    : null;
   const risky = /risky/i.test(p.native_check || '') || r.flagged;
   const left = S.weeklyTargetLeft();
   const delayDays = S.nextItemReviewDelayDays();
@@ -600,15 +619,31 @@ function renderCaptureResult(out, r, raw, app) {
     </div>
 
     ${r.bonus?.skeleton ? `<details class="result-details"><summary>查看相关表达</summary>
-      <p class="skel en" style="font-size:16px;margin-top:6px">${skel(r.bonus.skeleton)}</p>
-      <p class="tiny zh" style="padding-bottom:10px">${esc(r.bonus.zh || '')}</p></details>` : ''}
+      <div class="related-expression">
+        <p class="skel en" style="font-size:16px">${skel(r.bonus.skeleton)}
+          <button class="link" id="say-bonus" style="margin-left:6px">朗读</button></p>
+        <p class="zh sub" style="margin-top:5px">${esc(r.bonus.zh || '')}</p>
+        <p class="zh" style="margin-top:9px"><b>触发时机：</b>${esc(r.bonus.trigger || '')}</p>
+        <p class="zh" style="margin-top:9px;font-size:13.5px">${esc(r.bonus.why || '')}</p>
+        ${(r.bonus.seeds || []).length ? `<div style="margin-top:11px;padding-top:10px;border-top:1px solid var(--line)">
+          <div class="eyebrow">参考例句</div>
+          <ul class="bul en" style="margin-top:7px">${r.bonus.seeds.map(seed => `<li>${esc(seed)}</li>`).join('')}</ul>
+        </div>` : ''}
+        <button class="btn ${bonusExisting ? 'btn-ghost' : 'btn-pri'} btn-blk" id="cap-add-bonus" style="margin-top:12px">
+          ${bonusExisting ? '已在句库，开始练习' : '加入并开始练习'}
+        </button>
+        <div id="cap-bonus-drill"></div>
+      </div>
+    </details>` : ''}
 
     <div class="card">
       <p class="zh" style="font-weight:600">加入句库并练习</p>
       <p class="tiny zh" style="margin-top:5px">${left
         ? `本周建议量还剩 ${left} 条。`
         : `已达到每周 ${S.WEEKLY_NEW_TARGET} 条建议量；仍可收录，后续复习将自动顺延约 ${delayDays} 天。`}</p>
-      <button class="btn btn-pri btn-blk" id="cap-add" style="margin-top:12px">加入并开始练习</button>
+      <button class="btn ${primaryExisting ? 'btn-ghost' : 'btn-pri'} btn-blk" id="cap-add" style="margin-top:12px">
+        ${primaryExisting ? '已在句库，开始练习' : '加入并开始练习'}
+      </button>
     </div>
     <div id="cap-drill"></div>
   </div>`;
@@ -622,7 +657,9 @@ function renderCaptureResult(out, r, raw, app) {
   $('#say-nat')?.addEventListener('click', () => SP.say(r.natural));
   $('#say-sp')?.addEventListener('click', () => SP.say(r.spoken));
   $('#say-sk')?.addEventListener('click', () => SP.say(p.skeleton));
+  $('#say-bonus')?.addEventListener('click', () => SP.say(r.bonus.skeleton));
   $('#cap-add')?.addEventListener('click', () => admit());
+  $('#cap-add-bonus')?.addEventListener('click', () => admitBonus());
 
   function admit() {
     S.saveDraft('');
@@ -633,10 +670,44 @@ function renderCaptureResult(out, r, raw, app) {
     $('#cap-drill').innerHTML = d.html; d.mount();
     $('#cap-drill').scrollIntoView({ behavior: 'smooth', block: 'center' });
   }
+
+  function admitBonus() {
+    const bonus = r.bonus;
+    if (!bonus) return;
+    const it = S.addItem({
+      skeleton: bonus.skeleton,
+      zh: bonus.zh,
+      trigger: bonus.trigger,
+      why: bonus.why,
+      register: bonus.register,
+      tags: bonus.tags,
+      seeds: bonus.seeds,
+      drill: bonus.drill,
+      srcKind: r.mode === 'fragment' ? 'fragment' : r.mode,
+      raw,
+    });
+    const button = $('#cap-add-bonus');
+    if (button) {
+      button.disabled = true;
+      button.classList.remove('btn-pri');
+      button.classList.add('btn-ghost');
+      button.textContent = '已加入句库';
+    }
+    const d = drillCard(it, cueFor(it), {
+      label: '相关表达练习',
+      onGraded: () => {
+        toast('相关表达已加入句库');
+        offerExitDrill(it.id, '#cap-bonus-drill');
+      },
+    });
+    $('#cap-bonus-drill').innerHTML = d.html;
+    d.mount();
+    $('#cap-bonus-drill').scrollIntoView({ behavior: 'smooth', block: 'center' });
+  }
 }
-function offerExitDrill(justAddedId) {
+function offerExitDrill(justAddedId, selector = '#cap-drill') {
   const nxt = S.dueItems().find(i => i.id !== justAddedId);
-  const box = $('#cap-drill');
+  const box = $(selector);
   if (!nxt || !box) { go('home'); return; }
   const cue = cueFor(nxt);
   const d = drillCard(nxt, cue, {

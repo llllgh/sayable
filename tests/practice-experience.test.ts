@@ -31,4 +31,21 @@ describe('practice experience', () => {
     expect(profileView).toContain('英语六级');
     expect(llm).toContain('英语水平：${englishLevelLabel');
   });
+
+  it('lets related expressions be spoken, collected, and practiced', () => {
+    const source = readFileSync('js/views.js', 'utf8');
+
+    expect(source).toContain('id="say-bonus"');
+    expect(source).toContain('id="cap-add-bonus"');
+    expect(source).toContain("label: '相关表达练习'");
+    expect(source).toContain('drill: bonus.drill');
+  });
+
+  it('shows passing answers with corrections as a distinct result', () => {
+    const source = readFileSync('js/views.js', 'utf8');
+
+    expect(source).toContain("'通过，但需纠正'");
+    expect(source).toContain("'需要纠正（不影响本次通过）'");
+    expect(source).toContain("'可选精简'");
+  });
 });

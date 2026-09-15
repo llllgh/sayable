@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { skeletonAnchoredInExpression } from '../core/capture';
 
 const nullableText = z.string().nullable().optional();
 
@@ -24,14 +25,31 @@ export const captureSchema = z.object({
     trap: nullableText,
   }),
   bonus: z.object({
-    skeleton: z.string(),
-    zh: z.string(),
+    skeleton: z.string().min(1),
+    zh: z.string().min(1),
+    trigger: z.string().trim().min(1),
+    why: z.string().trim().min(1),
+    register: z.enum(['meeting', 'email', 'casual']).catch('meeting'),
+    tags: z.array(z.string()).max(3).catch([]),
+    seeds: z.array(z.string()).min(1).max(3),
+    drill: z.object({
+      brief: z.string().trim().min(1),
+      target_zh: z.string().trim().min(1),
+    }).strict(),
   }).nullable().optional(),
   drill: z.object({
     brief: z.string().min(1),
     target_zh: z.string().catch(''),
   }),
-}).passthrough();
+}).passthrough().superRefine((value, context) => {
+  if (!skeletonAnchoredInExpression(value.primary.skeleton, value.natural)) {
+    context.addIssue({
+      code: 'custom',
+      path: ['primary', 'skeleton'],
+      message: 'primary skeleton must be directly instantiated by natural',
+    });
+  }
+});
 
 export const reviewCueSchema = z.object({
   brief: z.string().trim().min(1),
@@ -48,7 +66,23 @@ export const judgeSchema = z.object({
   fix: nullableText,
   tighter: nullableText,
   note: z.string().catch(''),
-}).passthrough();
+}).passthrough().superRefine((value, context) => {
+  const fix = String(value.fix || '').trim();
+  if (value.issue_level === 'none' && fix) {
+    context.addIssue({
+      code: 'custom',
+      path: ['fix'],
+      message: 'fix must be null when issue_level is none',
+    });
+  }
+  if (value.issue_level !== 'none' && !fix) {
+    context.addIssue({
+      code: 'custom',
+      path: ['fix'],
+      message: 'fix must contain the complete necessary correction',
+    });
+  }
+});
 
 export const compressSchema = z.object({
   short: z.string().min(1),

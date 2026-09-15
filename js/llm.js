@@ -81,8 +81,9 @@ const SYS = `你是一名专门服务「被动词汇量很大、主动调用通�
 
 你的产出规则（硬性）：
 1. 学习单元必须是**可复用骨架**，带 X / Y / Z 槽位或稳定的交际功能，例如 "struggle to translate X into Y"、"The bottleneck has shifted from X to Y"。绝不把单个词、完整的固定句子当成学习单元。
-2. 一次只给 **1 个** 主骨架（primary）。最多再给 1 个「顺手记」（bonus，可为空）。宁缺毋滥。
-3. 骨架必须能迁移到学习者画像里的**至少 3 个不同真实场景**。做不到就换一个。
+2. 一次只给 **1 个** 主骨架（primary）。primary 必须直接从 natural 中抽出，natural 本身必须是该骨架填入槽位后的完整实例；不得从输入的其他细节另挑一个与 natural 没有直接关系的句型，也不得为了避开已有条目而换成“新的东西”。
+   最多再给 1 个相关表达（bonus，可为空）。bonus 只承接输入中的次要意思，并必须给出独立的 trigger、例句和练习题，使它可以单独收录。
+3. primary 和 bonus 都必须能迁移到学习者画像里的**至少 3 个不同真实场景**。做不到就不推荐。
    同时必须为骨架写出 trigger：用一句中文说明「出现什么情境信号时，为了完成什么沟通动作，应调用这个骨架」。
    trigger 应写成「当……时，……」或同等明确的条件—意图结构，不得只是话题标签、中文释义或具体答案。
 4. 严禁推荐以下几类：
@@ -119,7 +120,19 @@ const SCHEMA_HINT = `严格按此 JSON 结构输出：
     "native_check": "母语者在该场景会这么说吗？回答 yes / risky，并用一句中文说明理由",
     "trap": "用错时最常见的一个坑（中文，一句话）；没有则 null"
   },
-  "bonus": { "skeleton": "...", "zh": "..." } 或 null,
+  "bonus": {
+    "skeleton": "与输入次要意思直接相关的可复用骨架",
+    "zh": "中文意思",
+    "trigger": "触发情境与沟通意图",
+    "why": "为什么值得单独拥有",
+    "register": "meeting|email|casual",
+    "tags": ["最多3个中文标签"],
+    "seeds": ["完整迁移例句1", "例句2"],
+    "drill": {
+      "brief": "不泄露英文答案的具体中文造句任务",
+      "target_zh": "要用英文说出的完整中文意思"
+    }
+  } 或 null,
   "drill": {
     "brief": "立刻造句题（中文，一句具体到接近翻译的完整任务：说清要表达的那件事和关键信息，不许出现英文答案或目标骨架）",
     "target_zh": "这道题要用英文说出的完整中文意思（具体、含关键信息，接近可直译的程度）"
@@ -127,7 +140,7 @@ const SCHEMA_HINT = `严格按此 JSON 结构输出：
 }`;
 
 const MODE_HINT = {
-  zh: '学习者给的是一段中文意思，他想知道英语里最自然、最压缩的说法。请先给自然表达，再给口语版，然后抽出骨架。diagnosis.symptom 要指出「如果按中文直译会犯什么毛病」。',
+  zh: '学习者给的是一段中文意思，他想知道英语里最自然、最压缩的说法。先给自然表达，再从这句 natural 实际使用的结构中抽出 primary。primary 不能改去教授输入里的另一层意思。diagnosis.symptom 要指出「如果按中文直译会犯什么毛病」。',
   mine: '学习者给的是他自己写/说的英文。请保留他的逻辑和分寸（不要把结论说得比他更强），指出真正的问题，给出改写，并抽出他最该拥有的那个骨架。diagnosis 必填。',
   heard: '学习者给的是他听到的一个好表达。不要只夸它，立刻把它抽象成骨架，并用他的真实场景造迁移例句。natural 字段放这个表达的标准形态。diagnosis.symptom 填 null。',
   fragment: '学习者只记得半句/记错了。先尽最大可能还原成母语者真实会说的那个表达（在 read 里说明你的还原依据和不确定性），然后按 heard 处理。若有多种可能，选最高频的那个，并在 trap 里提醒另一种可能。',
@@ -205,7 +218,7 @@ export async function capture(text, forcedMode) {
 【学习者画像】
 ${profileBlock()}
 
-【他已经在练的骨架（若这次的意思能用已有骨架表达，请在 read 里明确指出「这个可以用你已有的 xxx」，primary 就换成一个真正新的东西，或者 primary 为已有骨架的自然延伸）】
+【他已经在练的骨架（仅用于提示重复；即使 primary 与已有条目相同，也必须忠实抽取 natural 中实际使用的结构，不得为了新颖而换成无关句型）】
 ${owned || '（暂无）'}
 
 【本次输入类型】${mode}
@@ -273,13 +286,16 @@ export async function judge({ skeleton, zh, brief, answer, seeds = [] }) {
 - 本题只检验学习者能否主动调用**目标骨架**。只要用对目标骨架、槽位关系正确且核心语义成立，就应通过；用词与参考例句不同没关系。
 - 大小写、句号、逗号等标点是 ASR 格式噪声，必须完全忽略，不得据此扣分。
 - 主谓一致、冠词、单复数、局部词形或局部时态错误，如果不改变核心语义，属于 minor：仍然通过，同时在 fix 中给出最小修正。例如 "compacting context help you" 应判通过，并修正为 "compacting context helps you"。
+- 搭配、介词、代词指代或主语关系不自然，但对方仍能理解核心意思时，也属于 minor：必须明确纠正，但不阻止本题通过。
 - 只有以下情况属于 blocking 并判为不通过：没有使用目标骨架；关键槽位关系错误；句子无法理解；错误明显改变了人物、时间、否定或核心语义。
 - issue_level 只能是 none、minor、blocking。ok 必须等于 used_target && meaning_intact && issue_level != "blocking"。
-- fix 只放必须纠正的实质变化。若与原句相比只有大小写、标点或断句不同，fix 必须填 null。
-- tighter 只在能明显减少冗余或提高口语自然度时提供；只改大小写、标点、断句或随意换同义词时必须填 null。
-- note 要极短。fix 不为 null 时，必须点名改动前后的具体词语并解释原因；不得只写“更自然”“更完整”或“表达有误”。
+- issue_level 为 minor 或 blocking 时，fix 必须是一条完整的英文修正版，并一次覆盖所有必须纠正的语法、搭配、介词、指代和主语关系问题；不能只修最小的一处，把其余必要纠错藏进 tighter。
+- issue_level 为 none 时 fix 必须填 null。若与原句相比只有大小写、标点或断句不同，也必须判 none 且 fix 填 null。
+- tighter 只能优化一条已经正确的表达，只做可选精简或组织调整。它不得承担任何语法、搭配、介词、指代、主语关系或核心语义修复；没有纯风格收益就填 null。
+- note 要极短。fix 不为 null 时，必须说明主要错误为什么需要改；不得只写“更自然”“更完整”或“表达有误”。
+- 展示层有三种结果：完全通过、通过但需纠正、未通过。minor 对应“通过但需纠正”，不能伪装成完全无误，也不能因为局部错误阻断目标骨架练习。
 只输出 JSON：
-{"ok":true/false,"used_target":true/false,"meaning_intact":true/false,"issue_level":"none|minor|blocking","verdict":"一句话结论（中文，先说过没过）","fix":"只包含实质变化的最小修正版（英文）或 null","tighter":"明显更紧凑的版本（英文）或 null","note":"一句话解释具体改动；没有实质改动则填空字符串"}`;
+{"ok":true/false,"used_target":true/false,"meaning_intact":true/false,"issue_level":"none|minor|blocking","verdict":"一句话结论（中文，区分完全通过、通过但需纠正、未通过）","fix":"覆盖全部必要纠错的完整英文修正版或 null","tighter":"只包含可选精简的英文版本或 null","note":"必要纠错的简短原因；没有实质改动则填空字符串"}`;
   const normalizedAnswer = normalizeJudgementText(answer);
   const user = `目标骨架：${skeleton}
 骨架中文：${zh}
@@ -551,6 +567,10 @@ function normalize(out, mode) {
   }
   p.seeds = (p.seeds || []).slice(0, 3);
   p.tags = (p.tags || []).slice(0, 3);
+  if (o.bonus) {
+    o.bonus.seeds = (o.bonus.seeds || []).slice(0, 3);
+    o.bonus.tags = (o.bonus.tags || []).slice(0, 3);
+  }
   const low = (p.skeleton || '').toLowerCase();
   o.flagged = BLACKLIST.some(b => low.includes(b));
   o.drill = o.drill || { brief: '用这个骨架，就你手上正在推进的一件事说一句话。', target_zh: '' };

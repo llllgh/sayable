@@ -32,6 +32,7 @@ export interface JudgementDiff {
 }
 
 export interface JudgementFeedback {
+  kind: 'passed' | 'passed_with_correction' | 'failed';
   verdict: string;
   note: string;
   correction: JudgementDiff | null;
@@ -275,31 +276,31 @@ export function buildJudgementFeedback(
   result: Partial<JudgementResult>,
 ): JudgementFeedback {
   const correction = compareJudgementText(answer, result.fix);
-  const tighter = compareJudgementText(answer, result.tighter);
-  const correctionTarget = normalizeJudgementText(result.fix || '');
-  const tighterTarget = normalizeJudgementText(result.tighter || '');
-  const distinctTighter = tighter && tighterTarget !== correctionTarget
-    ? tighter
-    : null;
+  const tighter = correction
+    ? null
+    : compareJudgementText(answer, result.tighter);
 
   if (result.ok) {
     if (correction) {
       return {
-        verdict: '通过，骨架和语义都对；只需调整下面高亮的部分。',
+        kind: 'passed_with_correction',
+        verdict: '通过，骨架和语义都对；但下面的问题仍需纠正。',
         note: result.note || '',
         correction,
-        tighter: distinctTighter,
+        tighter: null,
       };
     }
-    if (distinctTighter) {
+    if (tighter) {
       return {
+        kind: 'passed',
         verdict: '通过，骨架和表达都对。下面是一种更紧凑的说法。',
         note: '',
         correction: null,
-        tighter: distinctTighter,
+        tighter,
       };
     }
     return {
+      kind: 'passed',
       verdict: '通过，骨架和表达都对，没有需要改的地方。',
       note: '',
       correction: null,
@@ -308,10 +309,11 @@ export function buildJudgementFeedback(
   }
 
   return {
+    kind: 'failed',
     verdict: '还没通过，目标结构或核心语义需要调整。',
     note: result.note || '',
     correction,
-    tighter: distinctTighter,
+    tighter: correction ? null : tighter,
   };
 }
 

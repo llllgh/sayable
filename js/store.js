@@ -472,7 +472,29 @@ export function makeItem(o) {
   };
 }
 
+export function normalizeSkeleton(value) {
+  return String(value || '')
+    .normalize('NFKC')
+    .toLocaleLowerCase('en-US')
+    .replace(/[\u2018\u2019]/gu, "'")
+    .replace(/[^\p{L}\p{N}'\[\]]+/gu, ' ')
+    .replace(/\s+/gu, ' ')
+    .trim();
+}
+
+export function findItemBySkeleton(skeleton) {
+  const signature = normalizeSkeleton(skeleton);
+  if (!signature) return undefined;
+  return state.items.find(item => normalizeSkeleton(item.skeleton) === signature);
+}
+
 export function addItem(o) {
+  const existing = findItemBySkeleton(o.skeleton);
+  if (existing) {
+    if (existing.status === 'retired') revive(existing.id);
+    return existing;
+  }
+
   const createdAt = now();
   const delayDays = initialReviewDelayDays(
     newThisWeek(),
