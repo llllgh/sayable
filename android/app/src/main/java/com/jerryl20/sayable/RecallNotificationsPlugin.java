@@ -61,7 +61,7 @@ public class RecallNotificationsPlugin extends Plugin {
         Intent notification = new Intent();
         notification.putExtra("id", 4199);
         notification.putExtra("itemId", call.getString("itemId", ""));
-        notification.putExtra("title", "说得出 · 通知测试");
+        notification.putExtra("title", "Locue · 通知测试");
         notification.putExtra("body", call.getString("body", "通知与快捷回复已就绪"));
         show(getContext(), notification);
         call.resolve();
@@ -180,7 +180,7 @@ public class RecallNotificationsPlugin extends Plugin {
         intent.setAction(context.getPackageName() + ".RECALL." + id);
         intent.putExtra("id", id);
         intent.putExtra("itemId", notification.optString("itemId"));
-        intent.putExtra("title", notification.optString("title", "说得出"));
+        intent.putExtra("title", notification.optString("title", "Locue"));
         intent.putExtra("body", notification.optString("body"));
         PendingIntent pending = PendingIntent.getBroadcast(
             context,
@@ -246,6 +246,7 @@ public class RecallNotificationsPlugin extends Plugin {
             CHANNEL_ID
         )
             .setSmallIcon(R.drawable.ic_stat_sayable)
+            .setColor(android.graphics.Color.rgb(8, 126, 139))
             .setContentTitle(title)
             .setContentText(body)
             .setStyle(new NotificationCompat.BigTextStyle().bigText(body))

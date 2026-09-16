@@ -318,7 +318,7 @@ export function viewPreflight(app) {
           ${x.it.trigger ? `<p class="zh" style="margin-top:7px"><b>触发时机：</b>${esc(x.it.trigger)}</p>` : ''}
           <p class="tiny zh" style="margin-top:7px">${esc(x.reason || '')}</p>
           <div class="row" style="margin-top:11px">
-            <button class="btn btn-sm btn-warm grow" data-warm="${k}">开始练习</button>
+            <button class="btn btn-sm btn-pri grow" data-warm="${k}">开始练习</button>
             <button class="btn btn-sm btn-ghost" data-real="${x.it.id}">记录已使用</button>
           </div>
           <div id="pf-d-${k}"></div>
@@ -381,7 +381,7 @@ export function viewLibrary(app) {
         .map(([k, t]) => `<button class="${libFilter === k ? 'on' : ''}" data-f="${k}">${t}</button>`).join('')}
     </div>
 
-    ${libFilter === 'silent' && map.silent.length ? `<div class="card warm"><p class="zh sub">这些表达还没有完成过口头练习。</p></div>` : ''}
+    ${libFilter === 'silent' && map.silent.length ? `<div class="card acc"><p class="zh sub">这些表达还没有完成过口头练习。</p></div>` : ''}
 
     <div class="card flat" style="padding:6px 15px">
       ${list.length ? list.map(i => `<div class="li" style="cursor:pointer" data-item="${i.id}">
@@ -677,10 +677,14 @@ export function settingsSheet(onChange) {
   const textProvider = getTextProviderProfile(s.textProviderId, region);
   const profileLabel = `${speechProfile.label} · ${textProvider.label}`;
   openSheet('设置', `
+    <button type="button" class="settings-profile" id="settings-profile">
+      <span><strong>学习偏好</strong><small>英语水平、常用场景与表达目标</small></span>
+      <svg viewBox="0 0 24 24" class="ic" aria-hidden="true"><path d="m9 5 7 7-7 7"/></svg>
+    </button>
     <div class="card ${S.isLive() ? 'acc' : 'warm'}" style="margin-bottom:16px">
       <p class="zh" style="font-weight:600">${S.isLive() ? '模型已接入' : '尚未接入模型'}</p>
       <p class="tiny zh" style="margin-top:5px">${S.isLive()
-        ? `${profileLabel}配置已启用。数据保存在 ${S.storageBackend() === 'sqlite' ? 'SQLite' : 'IndexedDB'}，API Key 单独存放。`
+        ? `${profileLabel}配置已启用。学习记录保存在本机，凭证单独安全存放。`
         : '闪存可离线保存；分析、压缩和判卷需要先验证模型凭证。'}</p>
     </div>
 
@@ -756,8 +760,10 @@ export function settingsSheet(onChange) {
     <input type="file" id="s-file" accept=".json" style="display:none" />
 
     <div class="sec" style="margin-top:20px"><span class="eyebrow">关于</span><hr/></div>
-    <p class="tiny zh" style="margin-top:9px">MVP 请求从本机直达当前区域服务，不经过说得出的服务器；学习数据只保存在本机。</p>`, () => {
+    <p class="zh" style="margin-top:12px;font-size:22px;font-weight:700">Locue</p>
+    <p class="tiny zh" style="margin-top:9px">模型与语音请求从设备直接发送到所选服务；学习记录只保存在本机。</p>`, () => {
     bindSecretVisibility();
+    $('#settings-profile').addEventListener('click', profileSheet);
     let voiceMode = s.voiceMode === 'cloud' ? 'cloud' : 'system';
     let selectedTextProviderId = textProvider.id;
     let savedLlmApiKey = s.apiKey;

@@ -1,10 +1,10 @@
 {
   "appId": "com.jerryl20.sayable",
-  "appName": "说得出",
+  "appName": "Locue",
   "webDir": "www",
   "android": {
     "allowMixedContent": false,
-    "backgroundColor": "#F6F7F8",
+    "backgroundColor": "#F6F8F5",
     "loggingBehavior": "none"
   },
   "plugins": {
@@ -17,7 +17,7 @@
     },
     "LocalNotifications": {
       "smallIcon": "ic_stat_sayable",
-      "iconColor": "#12B98A"
+      "iconColor": "#087E8B"
     }
   }
 }

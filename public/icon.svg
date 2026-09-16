@@ -1,10 +1,11 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
-<defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1">
-<stop offset="0" stop-color="#3EE6B0"/><stop offset="1" stop-color="#0E8F6E"/></linearGradient></defs>
-<rect width="512" height="512" rx="112" fill="#070B10"/>
-<circle cx="256" cy="256" r="176" fill="none" stroke="url(#g)" stroke-width="10" opacity=".25"/>
-<path d="M150 300c0-70 46-116 116-116" fill="none" stroke="url(#g)" stroke-width="26" stroke-linecap="round"/>
-<path d="M266 184l44 34-44 34" fill="none" stroke="url(#g)" stroke-width="26" stroke-linecap="round" stroke-linejoin="round"/>
-<path d="M180 352h152" stroke="#3EE6B0" stroke-width="20" stroke-linecap="round" opacity=".55"/>
-<path d="M212 392h88" stroke="#3EE6B0" stroke-width="20" stroke-linecap="round" opacity=".3"/>
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512" role="img" aria-labelledby="title">
+  <title id="title">Locue</title>
+  <defs>
+    <path id="phrase" d="M47 0H81C111 0 128 17 128 47V101C128 143 105 174 70 194C61 199 53 189 59 181C72 163 79 145 80 128H47C17 128 0 111 0 81V47C0 17 17 0 47 0Z"/>
+  </defs>
+  <rect width="512" height="512" rx="112" fill="#123F46"/>
+  <g fill="#C9F3EC">
+    <use href="#phrase" transform="translate(108 208)"/>
+    <use href="#phrase" transform="translate(276 138)"/>
+  </g>
 </svg>

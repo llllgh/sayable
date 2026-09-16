@@ -1,6 +1,11 @@
-# 说得出 · Sayable
+# Locue
 
 离线优先的个人英语表达训练器。Android MVP 使用 Capacitor 原生外壳，学习数据写入应用沙箱内的 SQLite，API Key 写入 Android Keystore。
+
+品牌采用湖蓝浅色界面与墨青薄荷双引号图标。为保证已安装版本可以覆盖升级，
+Android 包名、数据库名和安全存储前缀保持原值；显示名称统一为 Locue。
+图标源文件为 `public/icon.svg`，在 macOS 上运行 `swift scripts/brand-assets.swift`
+可重新生成 Web、Android 自适应图标和启动图资源。
 
 ## 安装 Android 版
 
@@ -37,7 +42,7 @@ adb install -r android/app/build/outputs/apk/release/app-release.apk
 3. 点击“电池优化白名单”，允许后台提醒。
 4. 国产 ROM 还需在系统设置里允许自启动。
 
-设置页的“发送测试通知”可立即检查通知和快捷回复。正式通知只在存在到期条目时排程，答案在下次打开应用时判卷。长按桌面图标可使用“闪存”快捷入口；其他 App 分享文本时可选择“存进说得出”。
+设置页的“发送测试通知”可立即检查通知和快捷回复。正式通知只在存在到期条目时排程，答案在下次打开应用时判卷。长按桌面图标可使用“快速记录”快捷入口；其他 App 分享文本时可选择“存入 Locue”。
 
 ## 数据与隐私
 

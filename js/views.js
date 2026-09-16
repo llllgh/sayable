@@ -63,18 +63,21 @@ export function drillCard(it, cue, opts = {}) {
   const t0 = Date.now();
   const id = 'd' + it.id;
   const support = reviewSupport(it);
+  const referenceAnswer = opts.referenceAnswer || support.example;
   const guided = support.mode === 'guided';
   const needsSpecificCue = !hasSpecificReviewCue(it);
   let activeCue = cue;
   const html = `
-  <div class="card warm drill-card" id="${id}">
-    <div class="row drill-head" style="justify-content:space-between;margin-bottom:12px">
-      <span class="eyebrow" style="color:var(--warm)">${opts.label || '练习'}</span>
-      <span class="chip ${guided ? 'warm' : ''}">${guided ? '含英文提示' : '主动回忆'}</span>
+  <div class="card drill-card${opts.compact ? ' is-collapsed' : ''}" id="${id}">
+    <div class="row drill-head" style="justify-content:space-between">
+      <span class="eyebrow">${esc(opts.label || '练习')}</span>
+      <span class="tiny zh">${opts.remaining ? `${opts.remaining} 条待复习` : guided ? '含英文提示' : '主动回忆'}</span>
     </div>
     <div class="drill-input">
-      <p class="zh" id="${id}-cue" style="font-size:17px;font-weight:650;line-height:1.5">${esc(activeCue.brief)}</p>
-      <p class="tiny zh" id="${id}-trigger" style="margin-top:7px" ${activeCue.trigger ? '' : 'hidden'}>触发时机：${esc(activeCue.trigger)}</p>
+      <p class="zh drill-cue" id="${id}-cue">${esc(activeCue.brief)}</p>
+      <p class="tiny zh drill-trigger" id="${id}-trigger" ${activeCue.trigger ? '' : 'hidden'}>触发时机：${esc(activeCue.trigger)}</p>
+      ${opts.compact ? `<button class="btn btn-pri btn-blk drill-expand" id="${id}-expand" aria-expanded="false" aria-controls="${id}-answer">说一句试试 <svg viewBox="0 0 24 24" class="ic" aria-hidden="true"><path d="M4 12h16m-6-6 6 6-6 6"/></svg></button>` : ''}
+      <div id="${id}-answer" ${opts.compact ? 'hidden' : ''}>
       ${needsSpecificCue ? `<button class="btn-text" id="${id}-regen-cue" type="button">生成更具体的提示</button>` : ''}
       ${guided ? `<div class="drill-guide">
         <div class="row" style="justify-content:space-between;align-items:flex-start">
@@ -88,19 +91,20 @@ export function drillCard(it, cue, opts = {}) {
         </div>
         ${support.example ? `<div class="drill-example"><span class="eyebrow">参考句</span><p class="en">${esc(support.example)}</p></div>` : ''}
       </div>` : ''}
-      <p class="dim zh" style="margin-top:9px">${guided
+      <p class="dim zh drill-instruction">${guided
         ? '参考上面的表达，完整说出一句即可。'
         : '现在不显示英文提示，按中文场景完整说一句。'}</p>
-      <div class="row" style="margin-top:14px;align-items:flex-start">
-        <textarea class="grow" id="${id}-a" rows="3" placeholder="说出或输入英文句子">${esc(opts.initialAnswer || '')}</textarea>
+      <div class="answer-compose">
+        <textarea id="${id}-a" rows="3" aria-label="你的英文表达" placeholder="说出或输入英文句子">${esc(opts.initialAnswer || '')}</textarea>
         <button class="mic" id="${id}-mic" aria-label="开始录音" title="开始录音">
           <svg viewBox="0 0 24 24" class="ic"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5.5 11.5a6.5 6.5 0 0 0 13 0M12 18v3"/></svg>
         </button>
       </div>
       <div class="drill-actions ${opts.skippable ? 'has-skip' : ''}">
-        <button class="btn btn-warm" id="${id}-go">提交答案</button>
+        <button class="btn btn-pri" id="${id}-go">提交答案</button>
         <button class="btn btn-ghost" id="${id}-reveal">${guided ? '还不会' : '查看答案'}</button>
         ${opts.skippable ? `<button class="btn-text" id="${id}-skip">稍后</button>` : ''}
+      </div>
       </div>
     </div>
     <div id="${id}-out"></div>
@@ -113,6 +117,14 @@ export function drillCard(it, cue, opts = {}) {
     const micButton = $('#' + id + '-mic');
     const submitButton = $('#' + id + '-go');
     const revealButton = $('#' + id + '-reveal');
+    $('#' + id + '-expand')?.addEventListener('click', event => {
+      $('#' + id + '-answer').hidden = false;
+      event.currentTarget.setAttribute('aria-expanded', 'true');
+      event.currentTarget.hidden = true;
+      root.classList.remove('is-collapsed');
+      ta.focus({ preventScroll: true });
+      ta.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    });
     const stopRecording = () => {
       recording = false;
       micButton?.classList.remove('rec');
@@ -121,11 +133,15 @@ export function drillCard(it, cue, opts = {}) {
     };
     const lockInput = (stateClass) => {
       stopRecording();
+      ta.blur();
       root.classList.add(stateClass);
       if (micButton) micButton.disabled = true;
       if (submitButton) submitButton.disabled = true;
       if (revealButton) revealButton.disabled = true;
       ta.readOnly = true;
+      requestAnimationFrame(() => {
+        if (root.isConnected) root.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      });
     };
 
     $('#' + id + '-skip')?.addEventListener('click', () => { stopRecording(); opts.onSkip?.(); });
@@ -179,13 +195,13 @@ export function drillCard(it, cue, opts = {}) {
       out.innerHTML = `<div class="drill-result">
         <div class="eyebrow" style="margin-bottom:6px">参考答案</div>
         <p class="skel en">${skel(it.skeleton)}</p>
-        ${support.example ? `<p class="en sub" style="margin-top:8px">${esc(support.example)}</p>` : ''}
+        ${referenceAnswer ? `<p class="en sub" style="margin-top:8px">${esc(referenceAnswer)}</p>` : ''}
         <p class="dim zh" style="margin-top:8px">${esc(it.why || '')}</p>
         <div class="row" style="margin-top:12px"><button class="btn btn-pri grow" id="${id}-again">再练一次</button></div>
       </div>`;
       S.grade(it.id, false, { answer: '', ms: Date.now() - t0, ctx: activeCue.ctx, why: 'revealed' });
       opts.onResult?.(false);
-      SP.say(support.example || it.skeleton);
+      SP.say(referenceAnswer || it.skeleton);
       $('#' + id + '-again')?.addEventListener('click', () => opts.onGraded?.(false));
       done = true;
     });
@@ -217,11 +233,11 @@ export function drillCard(it, cue, opts = {}) {
         : feedback.kind === 'passed_with_correction'
           ? '通过，但需纠正'
           : '再练一次';
-      const feedbackColor = feedback.kind === 'passed'
-        ? 'var(--acc)'
+      const feedbackClass = feedback.kind === 'passed'
+        ? ''
         : feedback.kind === 'passed_with_correction'
-          ? 'var(--warm)'
-          : 'var(--rose)';
+          ? 'needs-correction'
+          : 'needs-practice';
       S.grade(it.id, ok, {
         answer: ans,
         ms: Date.now() - t0,
@@ -235,7 +251,7 @@ export function drillCard(it, cue, opts = {}) {
       out.innerHTML = `
       <div class="drill-result">
         <div class="row" style="justify-content:space-between;margin-bottom:8px">
-          <span class="eyebrow" style="color:${feedbackColor}">${feedbackLabel}</span>
+          <span class="drill-result-label ${feedbackClass}">${feedbackLabel}</span>
           ${ladderHTML(nxt.box, nxt.status === 'owned', { labeled: true })}
         </div>
         <p class="zh" style="font-weight:600">${esc(feedback.verdict)}</p>
@@ -249,7 +265,7 @@ export function drillCard(it, cue, opts = {}) {
         ${feedback.note ? `<p class="judgement-note zh"><b>为什么：</b>${esc(feedback.note)}</p>` : ''}
         <p class="skel en" style="margin-top:12px">${skel(it.skeleton)} <button class="link" id="${id}-play" style="margin-left:6px">朗读</button></p>
         <div class="row wrap" style="margin-top:13px">
-          <button class="btn ${ok ? 'btn-pri' : 'btn-warm'} grow" id="${id}-next">完成</button>
+          <button class="btn btn-pri grow" id="${id}-next">完成</button>
           ${ok && canStartRoleplay(nxt) ? `<button class="btn btn-ghost" id="${id}-roleplay">情境对话</button>` : ''}
           <button class="btn btn-ghost" id="${id}-used">记录实际使用</button>
         </div>
@@ -295,27 +311,34 @@ export function viewHome(app) {
   const recommendationState = recommendations
     ? recommendationProgress(recommendations)
     : null;
+  const recommended = recommendations?.items.find(item => !item.practicedAt);
 
-  app.innerHTML = `<div class="view stack">
+  app.innerHTML = `<div class="view stack home-view">
     <div class="page-head">
       <div class="page-head-copy">
         <h1 class="h-lg zh">今天</h1>
-        <p class="sub zh">先记下来，有时间时再处理。</p>
+        <p class="sub zh">先记下来，再把表达练熟。</p>
       </div>
     </div>
-    <div class="card">
-      <div class="eyebrow" style="margin-bottom:9px">快速记录</div>
-      <div class="row" style="align-items:flex-start">
-        <textarea class="grow" id="fl" rows="2" placeholder="记下一句想学或想改进的表达">${esc(S.state.draft || '')}</textarea>
+    <section class="quick-capture${S.state.draft ? ' has-draft' : ''}" aria-label="快速记录">
+      <div class="quick-capture-input">
+        <textarea id="fl" rows="1" aria-label="快速记录" placeholder="记下一句想说的话…">${esc(S.state.draft || '')}</textarea>
         <button class="mic" id="fl-mic" aria-label="开始录音" title="开始录音"><svg viewBox="0 0 24 24" class="ic"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5.5 11.5a6.5 6.5 0 0 0 13 0M12 18v3"/></svg></button>
       </div>
-      <div class="row" style="margin-top:11px">
+      <div class="quick-capture-actions">
         <button class="btn btn-pri grow" id="fl-save">保存</button>
         <button class="btn btn-ghost" id="fl-now">立即分析</button>
       </div>
-    </div>
+    </section>
 
-    ${inbox.length ? `<div class="card">
+    ${it ? `<div id="hero"></div>` : due.length ? `<div class="row">
+      <p class="zh sub grow">${due.length} 条表达待复习</p>
+      <button class="btn btn-pri btn-sm" id="undefer">继续复习</button>
+    </div>` : recent.length ? `<div class="home-complete" role="status">
+      <span aria-hidden="true">✓</span><p>今天的复习已完成</p>
+    </div>` : ''}
+
+    ${inbox.length ? `<section class="home-list">
       <div class="row" style="justify-content:space-between;margin-bottom:4px">
         <span class="eyebrow">待处理记录</span>
         <span class="chip warm">${inbox.length} 条</span>
@@ -324,20 +347,22 @@ export function viewHome(app) {
         <p class="${/[\u4e00-\u9fa5]/.test(f.text) ? 'zh' : 'en'}" style="font-size:14px">${esc(f.text)}</p>
         <p class="tiny">${ago(f.at)} · ${f.status === 'done' ? '已分析，点开查看' : f.status === 'analyzing' ? '正在分析' : f.status === 'failed' ? '分析未完成，点开重试' : '点开处理'}</p></div>
         <button class="btn btn-sm btn-ghost" data-drop="${f.id}" aria-label="删除记录">删除</button></div>`).join('')}
-    </div>` : ''}
+    </section>` : ''}
 
+    <section>
+    <div class="home-section-heading"><h2>为你推荐</h2><button class="link" data-nav="recommend">查看全部</button></div>
     <button type="button" class="recommendation-entry" data-nav="recommend">
-      <span class="recommendation-entry-icon" aria-hidden="true">
-        <svg viewBox="0 0 24 24" class="ic"><rect x="5" y="4" width="11" height="15" rx="2"/><path d="m9 8 2 2 4-4M9 14h4M18 8h1a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2h-8"/></svg>
-      </span>
       <span class="grow">
-        <span class="eyebrow">今日推荐</span>
-        <strong class="zh">${!recommendationState
+        <strong class="${recommended ? 'skel en' : 'zh'}">${recommended
+          ? skel(recommended.skeleton)
+          : !recommendationState
           ? '生成今天的表达'
           : recommendationState.remaining
             ? `${recommendationState.remaining} 个表达待练`
             : '今日推荐已完成'}</strong>
-        <small class="zh">${!recommendationState
+        <small class="zh">${recommended
+          ? esc(recommended.zh)
+          : !recommendationState
           ? '根据你的场景生成 5 个表达'
           : recommendationState.remaining
             ? `已完成 ${recommendationState.completed} / ${recommendationState.total}`
@@ -345,18 +370,7 @@ export function viewHome(app) {
       </span>
       <svg viewBox="0 0 24 24" class="ic recommendation-entry-arrow" aria-hidden="true"><path d="m9 18 6-6-6-6"/></svg>
     </button>
-
-    ${it ? `<div id="hero"></div>` : (due.length ? `<div class="card flat">
-      <div class="row" style="justify-content:space-between">
-        <p class="zh sub">${due.length} 条表达待复习</p>
-        <button class="btn btn-sm btn-warm" id="undefer">开始复习</button>
-      </div></div>` : `
-      <div class="card">
-        <div class="row" style="justify-content:space-between">
-          <div><div class="eyebrow">今日复习</div><p class="zh" style="margin-top:5px;font-weight:650">已完成</p></div>
-          <span class="chip acc">暂无到期内容</span>
-        </div>
-      </div>`)}
+    </section>
 
     <div class="metrics">
       <div class="metric acc"><div class="n">${m.owned}<small>/ ${m.total}</small></div><div class="k">已掌握表达</div></div>
@@ -364,7 +378,7 @@ export function viewHome(app) {
     </div>
 
     <div class="sec"><span class="eyebrow">常用工具</span><hr/></div>
-    <div class="card flat" style="padding:6px 15px">
+    <div class="home-list">
       ${[['compress', '精简一段表达', '保留重点，把长段落缩短'],
          ['preflight', '准备一场会议', '练习这场会马上会用到的表达']]
         .map(([r, t, d]) => `<div class="li" style="cursor:pointer" data-nav="${r}">
@@ -373,7 +387,7 @@ export function viewHome(app) {
     </div>
 
     ${recent.length ? `<div class="sec"><span class="eyebrow">最近添加</span><hr/><button class="link" data-nav="library">查看全部</button></div>
-    <div class="card flat" style="padding:6px 15px">
+    <div class="home-list">
       ${recent.map(i => `<div class="li" style="cursor:pointer" data-item="${i.id}">
         <div class="grow"><p class="skel en" style="font-size:15px">${skel(i.skeleton)}</p>
           <p class="tiny zh" style="margin-top:3px">${srcPill(i.source.kind)} ${esc(i.zh)}</p></div>
@@ -383,7 +397,11 @@ export function viewHome(app) {
 
   /* 闪存：零阻力 */
   const fl = $('#fl');
-  fl.addEventListener('input', () => S.saveDraft(fl.value));
+  const updateDraft = () => {
+    S.saveDraft(fl.value);
+    fl.closest('.quick-capture').classList.toggle('has-draft', !!fl.value);
+  };
+  fl.addEventListener('input', updateDraft);
   let rec = false;
   $('#fl-mic').addEventListener('click', () => {
     const b = $('#fl-mic');
@@ -395,17 +413,17 @@ export function viewHome(app) {
     if (rec) { SP.stop(); rec = false; b.classList.remove('rec'); return; }
     rec = true; b.classList.add('rec');
     SP.listen({ lang: /[a-zA-Z]/.test(fl.value) && !/[\u4e00-\u9fa5]/.test(fl.value) ? 'en-US' : 'zh-CN',
-      onText: t => { fl.value = t; S.saveDraft(t); },
+      onText: t => { fl.value = t; updateDraft(); },
       onEnd: () => { rec = false; b.classList.remove('rec'); },
       onError: e => { rec = false; b.classList.remove('rec'); toast(e.message); } });
   });
   $('#fl-save').addEventListener('click', () => {
-    if (!fl.value.trim()) { toast('先扔点东西进来'); return; }
+    if (!fl.value.trim()) { toast('先记下一句想说的话'); return; }
     S.addFlash(fl.value); SP.stop(); toast('已保存');
     viewHome(app);
   });
   $('#fl-now').addEventListener('click', () => {
-    const t = fl.value.trim(); if (!t) { toast('先扔点东西进来'); return; }
+    const t = fl.value.trim(); if (!t) { toast('先记下一句想说的话'); return; }
     SP.stop(); go('capture', { text: t });
   });
 
@@ -418,9 +436,15 @@ export function viewHome(app) {
     const cue = cueFor(it);
     const d = drillCard(it, cue, {
       label: '到期复习',
+      compact: true,
+      remaining: due.length,
       skippable: true,
       onSkip: () => { deferDrill = true; viewHome(app); },
-      onGraded: () => viewHome(app),
+      onGraded: () => {
+        viewHome(app);
+        const next = $('#hero', app) || $('.home-complete', app);
+        next?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      },
     });
     $('#hero').innerHTML = d.html;
     d.mount();

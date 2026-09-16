@@ -9,6 +9,7 @@ import {
   toast,
 } from './ui.js';
 import { drillCard, go } from './views.js';
+import { profileSheet } from './views2.js';
 import {
   recommendationKey,
   recommendationProgress,
@@ -62,7 +63,6 @@ function headerHTML() {
   return `<div class="page-head">
     <div class="page-head-copy">
       <h1 class="h-lg zh">今日推荐</h1>
-      <p class="sub zh">选择一个表达开始练习。</p>
     </div>
     <button class="btn btn-sm btn-ghost" id="recommend-profile">学习偏好</button>
   </div>`;
@@ -93,10 +93,10 @@ function mountPractice(app, recommendation) {
       why: recommendation.why,
       register: recommendation.register,
       tags: recommendation.tags,
-      seeds: [recommendation.example],
+      seeds: [recommendation.example, recommendation.drill.answer],
       drill: {
-        brief: recommendation.drill,
-        target_zh: recommendation.zh,
+        brief: recommendation.drill.brief,
+        target_zh: recommendation.drill.target_zh,
       },
       srcKind: 'recommendation',
       raw: '',
@@ -112,12 +112,13 @@ function mountPractice(app, recommendation) {
 
   const context = S.state.profile.scenarios?.[0] || '今天的真实沟通';
   const drill = drillCard(item, {
-    brief: recommendation.drill,
+    brief: recommendation.drill.brief,
     ctx: context,
-    target_zh: recommendation.zh,
+    target_zh: recommendation.drill.target_zh,
     trigger: recommendation.trigger,
   }, {
     label: '今日推荐 · 深入练习',
+    referenceAnswer: recommendation.drill.answer,
     onGraded: () => {
       const nextDeck = S.markRecommendationPracticed(recommendation.id);
       const progress = nextDeck
@@ -136,8 +137,15 @@ function mountPractice(app, recommendation) {
       });
     },
   });
-  $('#recommend-drill').innerHTML = drill.html;
+  $('.recommendation-view', app).classList.add('is-practicing');
+  $('#recommend-drill').innerHTML = `<button class="btn-text recommendation-return" id="recommend-return">‹ 返回推荐表达</button>${drill.html}`;
+  $('#recommend-return').addEventListener('click', () => {
+    SP.stop();
+    renderDeck(app, S.todayRecommendationDeck());
+    window.scrollTo({ top: 0, behavior: 'instant' });
+  });
   drill.mount();
+  window.scrollTo({ top: 0, behavior: 'instant' });
   $('#recommend-drill').scrollIntoView({
     behavior: 'smooth',
     block: 'center',
@@ -161,7 +169,7 @@ function renderComplete(app, deck) {
   </div>`;
   $('#recommend-profile').addEventListener(
     'click',
-    () => $('#btn-profile')?.click(),
+    profileSheet,
   );
   $('#recommend-home').addEventListener('click', () => go('home'));
 }
@@ -201,17 +209,14 @@ function renderDeck(app, deck) {
   app.innerHTML = `<div class="view stack recommendation-view">
     ${headerHTML()}
     <div class="recommendation-meta">
-      <span class="eyebrow">今日进度</span>
-      <span class="chip ${progress.completed ? 'acc' : ''}">${progress.completed} / ${progress.total}</span>
+      <span class="eyebrow">已完成 ${progress.completed} / ${progress.total}</span>
+      <span class="sub">${position + 1} / ${remaining.length}</span>
     </div>
 
     <article class="recommendation-card" id="recommend-card" aria-live="polite" tabindex="0">
-      <div class="row" style="justify-content:space-between">
-        <span class="chip">${position + 1} / ${remaining.length}</span>
         <div class="chips">${recommendation.tags.map(
           tag => `<span class="chip">${esc(tag)}</span>`,
         ).join('')}</div>
-      </div>
       <div class="recommendation-expression">
         <p class="skel en">${skel(recommendation.skeleton)}</p>
         <button class="recommendation-say" id="recommend-say-skeleton" aria-label="朗读表达" title="朗读表达">${speakerIcon()}</button>
@@ -224,13 +229,14 @@ function renderDeck(app, deck) {
           <button class="recommendation-say" id="recommend-say-example" aria-label="朗读例句" title="朗读例句">${speakerIcon()}</button>
         </div>
         <p class="en">${esc(recommendation.example)}</p>
+        <p class="example-translation">${esc(recommendation.example_zh)}</p>
       </div>
 
-      <div class="recommendation-fit">
-        <span class="eyebrow">触发时机</span>
-        <p class="zh">${esc(recommendation.trigger)}</p>
-      </div>
     </article>
+      <section class="recommendation-fit">
+        <h2 class="eyebrow">什么时候用</h2>
+        <p class="zh">${esc(recommendation.trigger)}</p>
+      </section>
 
     <div class="recommendation-progress" aria-hidden="true">
       ${remaining.map((_, itemIndex) => `<i class="${itemIndex === position ? 'on' : ''}"></i>`).join('')}
@@ -246,7 +252,7 @@ function renderDeck(app, deck) {
 
   $('#recommend-profile').addEventListener(
     'click',
-    () => $('#btn-profile')?.click(),
+    profileSheet,
   );
   $('#recommend-say-skeleton').addEventListener(
     'click',
@@ -261,16 +267,23 @@ function renderDeck(app, deck) {
     () => mountPractice(app, recommendation),
   );
 
+  let moving = false;
   const move = (delta) => {
+    if (moving) return;
     const nextPosition = position + delta;
     if (nextPosition < 0 || nextPosition >= remaining.length) return;
+    moving = true;
     const nextRecommendation = remaining[nextPosition];
     const nextIndex = deck.items.findIndex(item => (
       item.id === nextRecommendation.id
     ));
     const card = $('#recommend-card');
+    for (const selector of ['#recommend-prev', '#recommend-next', '#recommend-practice']) {
+      $(selector).disabled = true;
+    }
     card.classList.add(delta > 0 ? 'recommendation-out-left' : 'recommendation-out-right');
     setTimeout(() => {
+      if (!card.isConnected) return;
       const nextDeck = S.setRecommendationIndex(nextIndex);
       renderDeck(app, nextDeck);
     }, 150);
@@ -311,7 +324,7 @@ function renderError(app, error) {
   </div>`;
   $('#recommend-profile').addEventListener(
     'click',
-    () => $('#btn-profile')?.click(),
+    profileSheet,
   );
   $('#recommend-retry').addEventListener(
     'click',
@@ -332,7 +345,7 @@ async function loadRecommendations(app) {
   </div>`;
   $('#recommend-profile').addEventListener(
     'click',
-    () => $('#btn-profile')?.click(),
+    profileSheet,
   );
 
   try {

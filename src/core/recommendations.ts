@@ -3,6 +3,12 @@ export const MAX_DAILY_RECOMMENDATIONS = 6;
 
 export type RecommendationRegister = 'meeting' | 'email' | 'casual';
 
+export interface RecommendationDrill {
+  brief: string;
+  target_zh: string;
+  answer: string;
+}
+
 export interface RecommendationCard {
   id: string;
   skeleton: string;
@@ -10,7 +16,8 @@ export interface RecommendationCard {
   trigger: string;
   why: string;
   example: string;
-  drill: string;
+  example_zh: string;
+  drill: RecommendationDrill;
   register: RecommendationRegister;
   tags: string[];
   collectedItemId: string;
@@ -49,6 +56,54 @@ export function recommendationKey(value: unknown): string {
   return text(value).replace(/\s+/g, ' ').toLowerCase();
 }
 
+function comparableChinese(value: unknown): string {
+  return text(value)
+    .normalize('NFKC')
+    .toLocaleLowerCase('zh-CN')
+    .replace(/[^\p{L}\p{N}]+/gu, '');
+}
+
+function bigrams(value: string): string[] {
+  if (value.length < 2) return value ? [value] : [];
+  return Array.from({ length: value.length - 1 }, (_, index) => (
+    value.slice(index, index + 2)
+  ));
+}
+
+export function drillDiffersFromExample(
+  exampleZh: unknown,
+  targetZh: unknown,
+): boolean {
+  const example = comparableChinese(exampleZh);
+  const target = comparableChinese(targetZh);
+  if (!example || !target) return false;
+
+  const shorter = Math.min(example.length, target.length);
+  const longer = Math.max(example.length, target.length);
+  if (
+    (example.includes(target) || target.includes(example))
+    && shorter / longer >= 0.7
+  ) {
+    return false;
+  }
+
+  const remaining = new Map<string, number>();
+  for (const pair of bigrams(example)) {
+    remaining.set(pair, (remaining.get(pair) || 0) + 1);
+  }
+  let overlap = 0;
+  const targetPairs = bigrams(target);
+  for (const pair of targetPairs) {
+    const count = remaining.get(pair) || 0;
+    if (!count) continue;
+    overlap += 1;
+    remaining.set(pair, count - 1);
+  }
+  const totalPairs = bigrams(example).length + targetPairs.length;
+  const similarity = totalPairs ? (2 * overlap) / totalPairs : 1;
+  return similarity < 0.58;
+}
+
 function normalizeCard(
   value: unknown,
   idFactory?: () => string,
@@ -57,7 +112,21 @@ function normalizeCard(
   const skeleton = text(value.skeleton);
   const zh = text(value.zh);
   const example = text(value.example);
-  if (!skeleton || !zh || !example) return null;
+  const exampleZh = text(value.example_zh);
+  const drill = isRecord(value.drill) ? value.drill : null;
+  const drillBrief = text(drill?.brief);
+  const drillTargetZh = text(drill?.target_zh);
+  const drillAnswer = text(drill?.answer);
+  if (
+    !skeleton
+    || !zh
+    || !example
+    || !exampleZh
+    || !drillBrief
+    || !drillTargetZh
+    || !drillAnswer
+    || !drillDiffersFromExample(exampleZh, drillTargetZh)
+  ) return null;
 
   const id = text(value.id) || idFactory?.() || '';
   if (!id) return null;
@@ -69,7 +138,12 @@ function normalizeCard(
     trigger: text(value.trigger) || text(value.why),
     why: text(value.why),
     example,
-    drill: text(value.drill),
+    example_zh: exampleZh,
+    drill: {
+      brief: drillBrief,
+      target_zh: drillTargetZh,
+      answer: drillAnswer,
+    },
     register: normalizeRegister(value.register),
     tags: Array.isArray(value.tags)
       ? value.tags.map(text).filter(Boolean).slice(0, 3)

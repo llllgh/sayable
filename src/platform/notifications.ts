@@ -181,7 +181,7 @@ export async function rescheduleRecallNotifications(
     const item = due[slot % due.length];
     notifications.push({
       id: FIRST_NOTIFICATION_ID + day,
-      title: '说得出',
+      title: 'Locue',
       body: `「${item.zh}」怎么说？`,
       schedule: {
         at: scheduleAt,

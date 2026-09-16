@@ -2,7 +2,7 @@
 import * as S from './store.js';
 import { $, $$, closeSheet, toast } from './ui.js';
 import { viewHome, viewCapture, viewDrillItem, bindRouter } from './views.js';
-import { viewCompress, viewPreflight, viewLibrary, profileSheet, settingsSheet, onboardingSheet } from './views2.js';
+import { viewCompress, viewPreflight, viewLibrary, settingsSheet, onboardingSheet } from './views2.js';
 import { viewRecommendations } from './recommendations.js';
 import { viewRoleplay } from './roleplay.js';
 import { initNetwork } from '../src/platform/network.ts';
@@ -30,17 +30,21 @@ const ROUTES = {
 };
 
 function go(route, arg) {
+  closeSheet();
   if (route === 'roleplay' && arg) {
     openRoleplay(arg);
     return;
   }
   const r = ROUTES[route] ? route : 'home';
+  app.dataset.route = r;
   if (location.hash.slice(1) !== r) history.replaceState(null, '', '#' + r);
   const activeTab = r === 'recommend' ? 'home' : r;
-  $$('#tabbar .tab').forEach(t => t.classList.toggle(
-    'on',
-    t.dataset.route === activeTab,
-  ));
+  $$('#tabbar .tab').forEach(t => {
+    const active = t.dataset.route === activeTab;
+    t.classList.toggle('on', active);
+    if (active) t.setAttribute('aria-current', 'page');
+    else t.removeAttribute('aria-current');
+  });
   window.scrollTo({ top: 0, behavior: 'instant' });
   ROUTES[r](app, arg);
   refreshChip();
@@ -48,15 +52,25 @@ function go(route, arg) {
 bindRouter(go);
 
 function openDrill(itemId, answer = '') {
+  closeSheet();
+  app.dataset.route = 'drill';
   history.replaceState(null, '', '#drill/' + encodeURIComponent(itemId));
-  $$('#tabbar .tab').forEach(t => t.classList.remove('on'));
+  $$('#tabbar .tab').forEach(t => {
+    t.classList.remove('on');
+    t.removeAttribute('aria-current');
+  });
   window.scrollTo({ top: 0, behavior: 'instant' });
   viewDrillItem(app, itemId, answer);
 }
 
 function openRoleplay(itemId) {
+  closeSheet();
+  app.dataset.route = 'roleplay';
   history.replaceState(null, '', '#roleplay/' + encodeURIComponent(itemId));
-  $$('#tabbar .tab').forEach(t => t.classList.remove('on'));
+  $$('#tabbar .tab').forEach(t => {
+    t.classList.remove('on');
+    t.removeAttribute('aria-current');
+  });
   window.scrollTo({ top: 0, behavior: 'instant' });
   viewRoleplay(app, itemId);
 }
@@ -64,12 +78,10 @@ function openRoleplay(itemId) {
 function refreshChip() {
   const c = $('#mode-chip');
   const live = S.isLive();
-  c.textContent = live ? '模型已接入' : '未接入模型';
-  c.className = 'chip ' + (live ? 'chip-live' : 'chip-unconfigured');
+  c.hidden = live;
 }
 
 $$('#tabbar .tab').forEach(t => t.addEventListener('click', () => go(t.dataset.route)));
-$('#btn-profile').addEventListener('click', profileSheet);
 $('#btn-settings').addEventListener('click', () => settingsSheet(refreshChip));
 $('#mode-chip').addEventListener('click', () => settingsSheet(refreshChip));
 $$('#sheet [data-close]').forEach(el => el.addEventListener('click', closeSheet));

@@ -83,6 +83,12 @@ export async function initializePlatform(callbacks: PlatformCallbacks): Promise<
   if (Capacitor.getPlatform() === 'android') {
     await Keyboard.setResizeMode({ mode: KeyboardResize.Body }).catch(() => undefined);
   }
+  await Keyboard.addListener('keyboardWillShow', () => {
+    document.body.classList.add('keyboard-open');
+  });
+  await Keyboard.addListener('keyboardDidHide', () => {
+    document.body.classList.remove('keyboard-open');
+  });
 
   await initializeNotifications((itemId, answer) => {
     Store.track('notification_open', itemId);

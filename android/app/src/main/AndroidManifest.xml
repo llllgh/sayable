@@ -51,7 +51,7 @@
             android:excludeFromRecents="true"
             android:exported="true"
             android:finishOnTaskLaunch="true"
-            android:label="存进说得出"
+            android:label="@string/shortcut_capture_long"
             android:noHistory="true"
             android:theme="@android:style/Theme.Translucent.NoTitleBar">
             <intent-filter>

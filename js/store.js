@@ -549,7 +549,9 @@ export function addFlash(text, mode, source = 'app') {
     status: 'raw',
     failReason: '',
   };
-  state.inbox.unshift(f); state.draft = ''; track('flash'); save();
+  state.inbox.unshift(f);
+  if (source === 'app') state.draft = '';
+  track('flash'); save();
   return f;
 }
 export function dropFlash(id) { state.inbox = state.inbox.filter(f => f.id !== id); save(); }

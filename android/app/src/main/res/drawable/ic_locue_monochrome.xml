@@ -5,10 +5,10 @@
     android:viewportWidth="768" android:viewportHeight="768">
     <group android:translateX="128" android:translateY="128">
         <group android:translateX="108" android:translateY="208">
-            <path android:fillColor="#C9F3EC" android:pathData="M47 0H81C111 0 128 17 128 47V101C128 143 105 174 70 194C61 199 53 189 59 181C72 163 79 145 80 128H47C17 128 0 111 0 81V47C0 17 17 0 47 0Z"/>
+            <path android:fillColor="#FFFFFF" android:pathData="M47 0H81C111 0 128 17 128 47V101C128 143 105 174 70 194C61 199 53 189 59 181C72 163 79 145 80 128H47C17 128 0 111 0 81V47C0 17 17 0 47 0Z"/>
         </group>
         <group android:translateX="276" android:translateY="138">
-            <path android:fillColor="#C9F3EC" android:pathData="M47 0H81C111 0 128 17 128 47V101C128 143 105 174 70 194C61 199 53 189 59 181C72 163 79 145 80 128H47C17 128 0 111 0 81V47C0 17 17 0 47 0Z"/>
+            <path android:fillColor="#FFFFFF" android:pathData="M47 0H81C111 0 128 17 128 47V101C128 143 105 174 70 194C61 199 53 189 59 181C72 163 79 145 80 128H47C17 128 0 111 0 81V47C0 17 17 0 47 0Z"/>
         </group>
     </group>
 </vector>

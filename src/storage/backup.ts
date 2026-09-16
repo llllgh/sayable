@@ -51,7 +51,7 @@ export async function createDailyBackup(json: string): Promise<boolean> {
 }
 
 export async function exportSnapshot(json: string): Promise<void> {
-  const name = `sayable-${datePart()}.json`;
+  const name = `locue-${datePart()}.json`;
   if (!Capacitor.isNativePlatform()) {
     const blob = new Blob([json], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
@@ -72,8 +72,8 @@ export async function exportSnapshot(json: string): Promise<void> {
     recursive: true,
   });
   await Share.share({
-    title: '导出说得出数据',
-    text: '说得出本地数据备份（不含 API Key）',
+    title: '导出 Locue 数据',
+    text: 'Locue 本地数据备份（不含 API Key）',
     url: result.uri,
     dialogTitle: '保存或分享备份',
   });

@@ -220,7 +220,7 @@ describe('persisted state migration', () => {
     expect(migrated.settings).not.toHaveProperty('timeoutMs');
   });
 
-  it('preserves a valid daily recommendation deck', () => {
+  it('invalidates legacy recommendation decks without transfer drills', () => {
     const migrated = migratePersistedState({
       formatVersion: 4,
       items: [],
@@ -243,10 +243,7 @@ describe('persisted state migration', () => {
     }) as Record<string, any>;
 
     expect(migrated.formatVersion).toBe(CURRENT_STATE_FORMAT_VERSION);
-    expect(migrated.dailyRecommendations.currentIndex).toBe(1);
-    expect(migrated.dailyRecommendations.items).toHaveLength(5);
-    expect(migrated.dailyRecommendations.items[0].trigger)
-      .toBe('适合当前沟通场景');
+    expect(migrated.dailyRecommendations).toBeNull();
   });
 
   it('backfills an old item trigger only from a structured review cue', () => {

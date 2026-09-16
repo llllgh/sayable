@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { skeletonAnchoredInExpression } from '../core/capture';
+import { drillDiffersFromExample } from '../core/recommendations';
 
 const nullableText = z.string().nullable().optional();
 
@@ -125,7 +126,12 @@ export const recommendationSchema = z.object({
     trigger: z.string().trim().min(1),
     why: z.string().min(1),
     example: z.string().min(1),
-    drill: z.string().min(1),
+    example_zh: z.string().trim().min(1),
+    drill: z.object({
+      brief: z.string().trim().min(1),
+      target_zh: z.string().trim().min(1),
+      answer: z.string().trim().min(1),
+    }).strict(),
     register: z.enum(['meeting', 'email', 'casual']).catch('meeting'),
     tags: z.array(z.string()).max(3).catch([]),
   })).min(5).max(6),
@@ -141,6 +147,29 @@ export const recommendationSchema = z.object({
       message: 'recommendation skeletons must be unique',
     });
   }
+  value.items.forEach((item, index) => {
+    if (!skeletonAnchoredInExpression(item.skeleton, item.example)) {
+      context.addIssue({
+        code: 'custom',
+        path: ['items', index, 'example'],
+        message: 'recommendation example must instantiate the skeleton',
+      });
+    }
+    if (!drillDiffersFromExample(item.example_zh, item.drill.target_zh)) {
+      context.addIssue({
+        code: 'custom',
+        path: ['items', index, 'drill', 'target_zh'],
+        message: 'recommendation drill must transfer the skeleton to a different scenario',
+      });
+    }
+    if (!skeletonAnchoredInExpression(item.skeleton, item.drill.answer)) {
+      context.addIssue({
+        code: 'custom',
+        path: ['items', index, 'drill', 'answer'],
+        message: 'recommendation drill answer must instantiate the skeleton',
+      });
+    }
+  });
 });
 
 export const roleplayStartSchema = z.object({

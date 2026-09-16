@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import {
   createDailyRecommendationDeck,
+  drillDiffersFromExample,
   localDateKey,
   normalizeDailyRecommendationDeck,
   recommendationIndex,
@@ -12,18 +13,36 @@ import { recommendationSchema } from '../src/llm/schemas';
 
 function candidates(count = 5) {
   return Array.from({ length: count }, (_, index) => ({
-    skeleton: `move from X to Y ${index}`,
-    zh: `从 X 转向 Y ${index}`,
+    skeleton: `shift priority ${index} from X to Y`,
+    zh: `把第 ${index} 项重点从 X 转向 Y`,
     trigger: `当讨论方案 ${index} 的推进路径时，说明需要改变方向`,
     why: `适合场景 ${index}`,
-    example: `We moved from option ${index} to a clearer plan.`,
-    drill: `说明第 ${index} 个变化`,
+    example: `We should shift priority ${index} from speed to reliability.`,
+    example_zh: `我们应该把第 ${index} 项重点从速度转向可靠性。`,
+    drill: {
+      brief: `在预算评审中说明第 ${index} 项投入方向的变化`,
+      target_zh: `我们应该把第 ${index} 项预算重点从获客转向客户留存。`,
+      answer: `We should shift priority ${index} from acquisition to retention.`,
+    },
     register: 'meeting',
     tags: ['推进'],
   }));
 }
 
 describe('daily recommendations', () => {
+  it('distinguishes a transferred scenario from a direct answer replay', () => {
+    const example = '智能体成本与其说取决于显卡，不如说取决于上下文管理。';
+
+    expect(drillDiffersFromExample(
+      example,
+      '智能体的成本与其说取决于显卡，不如说取决于上下文管理。',
+    )).toBe(false);
+    expect(drillDiffersFromExample(
+      example,
+      '项目延期与其说是执行速度的问题，不如说是需求范围没有收紧。',
+    )).toBe(true);
+  });
+
   it('uses the local calendar day as the cache key', () => {
     expect(localDateKey(new Date(2026, 8, 1, 23, 59, 59)))
       .toBe('2026-09-01');
@@ -133,6 +152,26 @@ describe('daily recommendations', () => {
       .toBe(false);
   });
 
+  it('rejects a drill that repeats the example instead of transferring it', () => {
+    const repeated = candidates();
+    repeated[0].drill = {
+      brief: '换一种说法复述例句',
+      target_zh: '我们应该把第 0 项重点从速度转向可靠性。',
+      answer: 'We should shift priority 0 from speed to reliability.',
+    };
+
+    expect(recommendationSchema.safeParse({ items: repeated }).success)
+      .toBe(false);
+  });
+
+  it('rejects an example that does not instantiate its skeleton', () => {
+    const detached = candidates();
+    detached[0].example = 'The current plan looks reliable enough.';
+
+    expect(recommendationSchema.safeParse({ items: detached }).success)
+      .toBe(false);
+  });
+
   it('keeps the route, swipe controls, and collection path wired', () => {
     const main = readFileSync('js/main.js', 'utf8');
     const home = readFileSync('js/views.js', 'utf8');
@@ -153,7 +192,10 @@ describe('daily recommendations', () => {
     expect(view).not.toContain('S.retire');
     expect(view).not.toContain('替换后开始练习');
     expect(view).not.toContain('继续深入练习');
-    expect(view).toContain('target_zh: recommendation.zh');
+    expect(view).toContain('target_zh: recommendation.drill.target_zh');
+    expect(view).toContain('brief: recommendation.drill.brief');
+    expect(view).toContain('referenceAnswer: recommendation.drill.answer');
+    expect(view).not.toContain('target_zh: recommendation.zh');
     expect(view).toContain('trigger: recommendation.trigger');
     expect(home).not.toContain('cap-swap');
     expect(secondary).not.toContain('S.budgetLeft');

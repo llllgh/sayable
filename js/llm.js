@@ -384,12 +384,19 @@ export async function recommendDaily() {
 2. 优先依据学习者的岗位、学习目的、沟通对象、真实场景、CEFR 英语水平和他过去自己造过的句子；资料不足时使用中性职业场景，不虚构项目、公司、客户或结论。
 3. 5 个表达必须覆盖不同交际功能，且不能与已有骨架重复或只是换词改写。
 4. 只选务实母语者在会议、邮件或日常协作中真的会说的高频结构。禁止 AI 味、教科书味、低频俚语和花哨表达，包括 ${BLACKLIST.map(item => `"${item}"`).join('、')}。
-5. trigger 是「情境信号 + 沟通意图」，写成「当……时，……」；example 是一条完整、自然、可直接朗读的英文例句；drill 是中文造句任务，只描述意图和场景，不得泄露目标骨架。
-6. why 必须简短说明它为什么适合这个学习者，不得声称用户提供过不存在的事实。
-7. 只输出 JSON，不要 markdown 或额外说明。
+5. trigger 是「情境信号 + 沟通意图」，写成「当……时，……」；example 是一条完整、自然、可直接朗读的英文例句，并且必须直接实例化 skeleton；example_zh 是该例句准确、完整的中文意思。
+6. drill 必须是迁移练习，而不是例句翻译：
+   - drill.target_zh 是学习者要翻译成英文的一句具体、完整中文，必须自然地套用同一个 skeleton；
+   - 必须更换例句中的具体场景和槽位内容，至少改变主体/对象与事实/论点中的两项；
+   - 不得只是对 example_zh 换几个近义词、调整语序或补充背景；即使话题相近，也必须产生一条内容上不同的新表达；
+   - drill.brief 用中文简短交代新情境和沟通动作，不出现目标英文骨架或英文答案。
+   - drill.answer 是 target_zh 对应的自然英文参考答案，必须直接实例化 skeleton，且与 example 使用不同槽位内容。
+7. why 必须简短说明它为什么适合这个学习者，不得声称用户提供过不存在的事实。
+8. 输出前逐项对照 example_zh 与 drill.target_zh；若两句表达的是同一件事，必须重写 drill。
+9. 只输出 JSON，不要 markdown 或额外说明。
 
 JSON：
-{"items":[{"skeleton":"...","zh":"...","trigger":"触发情境与沟通意图","why":"...","example":"...","drill":"...","register":"meeting|email|casual","tags":["最多3个中文标签"]}]}`;
+{"items":[{"skeleton":"...","zh":"...","trigger":"触发情境与沟通意图","why":"...","example":"英文例句","example_zh":"英文例句的完整中文意思","drill":{"brief":"不同于例句的具体中文情境任务","target_zh":"在新场景中要用英文说出的完整中文意思","answer":"新场景对应的英文参考答案"},"register":"meeting|email|casual","tags":["最多3个中文标签"]}]}`;
   const user = `【学习者画像】
 ${profileBlock()}
 
