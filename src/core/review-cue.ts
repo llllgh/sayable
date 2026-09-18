@@ -3,6 +3,7 @@ import { reviewPromptMode } from './review-support';
 export interface ReviewCueDrill {
   brief?: string;
   target_zh?: string;
+  answer?: string;
 }
 
 export interface ReviewCueItem {

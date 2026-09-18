@@ -28,7 +28,7 @@ import {
   preflightSchema,
   recommendationSchema,
   restatementSchema,
-  reviewCueSchema,
+  reviewCueSchemaFor,
   roleplayContinueSchema,
   roleplayJudgeSchema,
   roleplayStartSchema,
@@ -271,9 +271,11 @@ export async function regenerateReviewCue(item) {
 2. target_zh 必须是具体、完整、接近可直译的一句中文，明确说出要表达的事实或观点以及关键信息。
 3. brief 必须是自然的中文任务描述，可用「当你想跟同事说：……」等形式，但不得泛化成「聊聊成本」「和外国同事沟通」。
 4. trigger、brief 和 target_zh 都不得出现目标英文骨架、完整英文答案或中英夹杂。
-5. 优先还原原始输入中的事实；其次使用参考例句里的具体关系。不得虚构用户未提供的项目、人员、客户或业务事实。
-6. 这道题必须能自然地使用目标${item?.kind === 'term' ? '词汇' : '骨架'}作答，且要求完整工作场景句，不考孤立翻译。只输出 JSON：
-{"trigger":"触发情境与沟通意图","brief":"具体中文任务","target_zh":"要用英文说出的完整中文意思"}`;
+5. 必须做迁移练习：不得翻译、改写或复述 seeds、anchorSentence、当前 drill；新题至少更换两个关键信息（如对象、动作、数量、时间、因果或沟通目的），不能只是替换一个名词。
+6. 可从原始输入与画像中选择另一个适用场景；信息不足时使用中性的假设工作场景，不得把假设写成用户真实经历。
+7. answer 必须是 target_zh 对应的自然英文答案，直接使用目标${item?.kind === 'term' ? '词汇' : '骨架'}，且与所有参考例句明显不同。
+8. brief、target_zh 与 answer 必须描述同一件事；要求完整工作场景句，不考孤立翻译。只输出 JSON：
+{"trigger":"触发情境与沟通意图","brief":"不同于参考句的具体中文任务","target_zh":"新场景中要用英文说出的完整中文意思","answer":"新场景对应的英文答案"}`;
   const user = `【学习者画像】
 ${profileBlock()}
 
@@ -291,11 +293,11 @@ ${JSON.stringify({
     currentDrill,
   }, null, 2)}
 
-请重新生成一条比现有提示更具体的复习提示。`;
+请生成一条比现有提示更具体、且与参考例句场景明显不同的迁移练习。`;
 
   return await chat(
     [{ role: 'system', content: sys }, { role: 'user', content: user }],
-    reviewCueSchema,
+    reviewCueSchemaFor(item || {}),
     {
       temperature: 0.45,
       maxTokens: LLM_OUTPUT_TOKENS.reviewCue,

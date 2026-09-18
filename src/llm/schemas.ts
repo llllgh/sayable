@@ -184,7 +184,75 @@ export const reviewCueSchema = z.object({
   brief: z.string().trim().min(1),
   target_zh: z.string().trim().min(1),
   trigger: z.string().trim().min(1),
+  answer: z.string().trim().min(1),
 }).strict();
+
+export function reviewCueSchemaFor(item: {
+  kind?: unknown;
+  skeleton?: unknown;
+  lemma?: unknown;
+  anchorSentence?: unknown;
+  seeds?: unknown;
+  drill?: unknown;
+}) {
+  return reviewCueSchema.superRefine((value, context) => {
+    const references = [
+      item.anchorSentence,
+      ...(Array.isArray(item.seeds) ? item.seeds : []),
+    ].filter(reference => String(reference || '').trim());
+    if (references.some(reference => (
+      !drillDiffersFromExample(reference, value.answer)
+    ))) {
+      context.addIssue({
+        code: 'custom',
+        path: ['answer'],
+        message: 'review cue must transfer the target to a different scenario',
+      });
+    }
+
+    const currentDrill = item.drill && typeof item.drill === 'object'
+      ? item.drill as Record<string, unknown>
+      : null;
+    if (
+      currentDrill?.target_zh
+      && !drillDiffersFromExample(currentDrill.target_zh, value.target_zh)
+    ) {
+      context.addIssue({
+        code: 'custom',
+        path: ['target_zh'],
+        message: 'regenerated review cue must differ from the current task',
+      });
+    }
+
+    const kind = normalizeLearningItemKind(item.kind);
+    if (
+      kind === 'term'
+      && !termAppearsInSentence(
+        String(item.lemma || item.skeleton || ''),
+        value.answer,
+      )
+    ) {
+      context.addIssue({
+        code: 'custom',
+        path: ['answer'],
+        message: 'term review answer must use the target term',
+      });
+    }
+    if (
+      kind === 'expression'
+      && !skeletonAnchoredInExpression(
+        String(item.skeleton || ''),
+        value.answer,
+      )
+    ) {
+      context.addIssue({
+        code: 'custom',
+        path: ['answer'],
+        message: 'expression review answer must instantiate the target skeleton',
+      });
+    }
+  });
+}
 
 export const judgeSchema = z.object({
   ok: z.boolean(),

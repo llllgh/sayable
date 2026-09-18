@@ -68,7 +68,7 @@ export function drillCard(it, cue, opts = {}) {
   const id = 'd' + it.id;
   const support = reviewSupport(it);
   const isTerm = it.kind === 'term';
-  const referenceAnswer = opts.referenceAnswer || support.example;
+  let referenceAnswer = opts.referenceAnswer || it.drill?.answer || support.example;
   const guided = support.mode === 'guided';
   const needsSpecificCue = !hasSpecificReviewCue(it);
   const session = S.ensurePracticeSession(it.id, {
@@ -94,7 +94,7 @@ export function drillCard(it, cue, opts = {}) {
       <p class="tiny zh drill-trigger" id="${id}-trigger" ${activeCue.trigger ? '' : 'hidden'}>触发时机：${esc(activeCue.trigger)}</p>
       ${opts.compact ? `<button class="btn btn-pri btn-blk drill-expand" id="${id}-expand" aria-expanded="false" aria-controls="${id}-answer">说一句试试 <svg viewBox="0 0 24 24" class="ic" aria-hidden="true"><path d="M4 12h16m-6-6 6 6-6 6"/></svg></button>` : ''}
       <div id="${id}-answer" ${opts.compact ? 'hidden' : ''}>
-      ${needsSpecificCue ? `<button class="btn-text" id="${id}-regen-cue" type="button">生成更具体的提示</button>` : ''}
+      ${needsSpecificCue || guided ? `<button class="btn-text" id="${id}-regen-cue" type="button">${needsSpecificCue ? '生成更具体的提示' : '换一个练习场景'}</button>` : ''}
       ${guided ? `<div class="drill-guide">
         <div class="row" style="justify-content:space-between;align-items:flex-start">
           <div class="grow">
@@ -376,16 +376,18 @@ export function drillCard(it, cue, opts = {}) {
         S.updatePracticeCue(session.id, activeCue);
         const cueText = $('#' + id + '-cue');
         if (cueText) cueText.textContent = activeCue.brief;
+        referenceAnswer = it.drill?.answer || support.example;
         const triggerText = $('#' + id + '-trigger');
         if (triggerText) {
           triggerText.textContent = `触发时机：${activeCue.trigger}`;
           triggerText.hidden = !activeCue.trigger;
         }
-        button.remove();
-        toast('具体提示已保存');
+        button.disabled = false;
+        button.textContent = '换一个练习场景';
+        toast('新的练习场景已保存');
       } catch (error) {
         button.disabled = false;
-        button.textContent = '重试生成具体提示';
+        button.textContent = needsSpecificCue ? '重试生成具体提示' : '重试换一个场景';
         toast(L.userMessage(error));
       }
     });

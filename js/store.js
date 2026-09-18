@@ -519,7 +519,7 @@ export function makeItem(o) {
     source: { kind: o.srcKind || 'zh', raw: o.raw || '', at: now() },
     trust: TRUST_BY_SRC[o.srcKind] ?? 1,
     seeds: o.seeds || [],           // 模型给的迁移例句（参考，不算我的）
-    drill: o.drill || null,         // 捕获时模型写的具体造句任务 {brief, target_zh}
+    drill: o.drill || null,         // 具体造句任务 {brief, target_zh, answer?}
     mine: [],                       // 我自己造的句子 {text, at, ctx}
     box: 0,
     dueAt: Number.isFinite(o.dueAt) ? Number(o.dueAt) : createdAt,
@@ -590,10 +590,11 @@ export function setItemDrill(id, drill) {
   const it = getItem(id);
   const brief = String(drill?.brief || '').trim();
   const targetZh = String(drill?.target_zh || '').trim();
+  const answer = String(drill?.answer || '').trim();
   const trigger = String(drill?.trigger || it?.trigger || '').trim();
   if (!it) throw new Error('找不到要更新的表达');
-  if (!brief || !targetZh) throw new Error('模型没有生成完整的复习提示');
-  it.drill = { brief, target_zh: targetZh };
+  if (!brief || !targetZh || !answer) throw new Error('模型没有生成完整的迁移练习');
+  it.drill = { brief, target_zh: targetZh, answer };
   it.trigger = trigger;
   track('review_cue_regenerated', id);
   return it.drill;
