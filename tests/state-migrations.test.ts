@@ -3,6 +3,7 @@ import {
   CURRENT_STATE_FORMAT_VERSION,
   migratePersistedState,
 } from '../src/storage/state-migrations';
+import { emptyToolTask } from '../src/core/tool-tasks';
 
 const legacyProfile = {
   name: '',
@@ -53,6 +54,17 @@ describe('persisted state migration', () => {
       items: [],
       inbox: [],
       compressions: [],
+      drafts: {
+        quickCapture: '',
+        expression: '',
+        compression: '',
+        preflight: '',
+      },
+      toolTasks: {
+        compression: emptyToolTask(),
+        preflight: emptyToolTask(),
+      },
+      practiceSessions: [],
       roleplaySessions: [],
       dailyRecommendations: null,
       notificationReplies: [],
@@ -110,8 +122,18 @@ describe('persisted state migration', () => {
       variety: 'international',
       englishLevel: null,
     });
-    expect(migrated.items).toEqual([{ ...userItem, trigger: '' }]);
-    expect(migrated.inbox).toEqual([{ id: 'user-inbox', source: 'app', text: 'mine' }]);
+    expect(migrated.items).toEqual([{
+      ...userItem,
+      kind: 'expression',
+      trigger: '',
+    }]);
+    expect(migrated.inbox).toEqual([{
+      id: 'user-inbox',
+      source: 'app',
+      text: 'mine',
+      status: 'raw',
+      failReason: '',
+    }]);
     expect(migrated.compressions).toEqual([
       { id: 'user-compression', long: 'My long text', short: 'My short text', longWords: 3, shortWords: 3 },
     ]);
@@ -126,7 +148,14 @@ describe('persisted state migration', () => {
       serviceRegion: 'cn',
       voiceMode: 'system',
     });
-    expect(migrated.draft).toBe('unfinished user text');
+    expect(migrated).not.toHaveProperty('draft');
+    expect(migrated.drafts).toEqual({
+      quickCapture: 'unfinished user text',
+      expression: '',
+      compression: '',
+      preflight: '',
+    });
+    expect(migrated.practiceSessions).toEqual([]);
     expect(migrated.log).toEqual([{ type: 'flash' }]);
   });
 
@@ -289,5 +318,126 @@ describe('persisted state migration', () => {
     }) as Record<string, any>;
 
     expect(migrated.roleplaySessions).toEqual([session]);
+  });
+
+  it('normalizes interrupted practice sessions without treating legacy drafts as answers', () => {
+    const migrated = migratePersistedState({
+      formatVersion: 9,
+      draft: 'unfinished capture',
+      practiceSessions: [{
+        id: 'practice-1',
+        itemId: 'item-1',
+        source: 'due-review',
+        sourceId: 'item-1',
+        startedAt: 100,
+        updatedAt: 200,
+        phase: 'submitting',
+        cue: {
+          brief: '向客户确认时间',
+          ctx: '项目会议',
+          target_zh: '我们能否周五前确认？',
+        },
+        answerDraft: 'Could we confirm this by Friday?',
+        attempts: [{
+          id: 'attempt-1',
+          kind: 'initial',
+          status: 'submitting',
+          answer: 'Could we confirm this by Friday?',
+          inputMode: 'text',
+          startedAt: 200,
+        }],
+      }],
+    }) as Record<string, any>;
+
+    expect(migrated.drafts.quickCapture).toBe('unfinished capture');
+    expect(migrated.practiceSessions[0]).toMatchObject({
+      id: 'practice-1',
+      phase: 'answering',
+      answerDraft: 'Could we confirm this by Friday?',
+      cue: {
+        context: '项目会议',
+      },
+    });
+    expect(migrated.practiceSessions[0].attempts[0]).toMatchObject({
+      status: 'error',
+      answer: 'Could we confirm this by Friday?',
+    });
+  });
+
+  it('migrates analyzed records and interrupted tool requests without losing results', () => {
+    const migrated = migratePersistedState({
+      formatVersion: 10,
+      inbox: [{
+        id: 'record-1',
+        text: 'Confirm the delivery plan',
+        status: 'done',
+        analysis: { natural: 'Could we confirm the delivery plan?' },
+      }],
+      toolTasks: {
+        compression: {
+          status: 'ready',
+          input: 'A long explanation',
+          resultId: 'compression-1',
+        },
+        preflight: {
+          status: 'running',
+          input: 'Launch review',
+          startedAt: 100,
+        },
+      },
+    }) as Record<string, any>;
+
+    expect(migrated.inbox[0]).toMatchObject({
+      status: 'ready',
+      analysis: { natural: 'Could we confirm the delivery plan?' },
+    });
+    expect(migrated.toolTasks.compression).toMatchObject({
+      status: 'ready',
+      input: 'A long explanation',
+      resultId: 'compression-1',
+    });
+    expect(migrated.toolTasks.preflight).toMatchObject({
+      status: 'interrupted',
+      input: 'Launch review',
+      error: '上次请求未完成，请重试',
+    });
+  });
+
+  it('defaults old items to expressions and normalizes professional term fields', () => {
+    const migrated = migratePersistedState({
+      formatVersion: 11,
+      items: [
+        {
+          id: 'old-expression',
+          skeleton: 'move from X to Y',
+          zh: '从 X 转向 Y',
+        },
+        {
+          id: 'term-1',
+          kind: 'term',
+          skeleton: 'stale value',
+          zh: '旧释义',
+          lemma: 'latency',
+          sense: '系统响应请求所需的延迟时间',
+          collocations: ['reduce latency', 'latency budget'],
+          anchorSentence: 'We need to reduce latency before launch.',
+          relatedExpressionIds: ['old-expression'],
+          domainTags: ['性能'],
+        },
+      ],
+    }) as Record<string, any>;
+
+    expect(migrated.formatVersion).toBe(12);
+    expect(migrated.items[0]).toMatchObject({
+      kind: 'expression',
+      skeleton: 'move from X to Y',
+    });
+    expect(migrated.items[1]).toMatchObject({
+      kind: 'term',
+      skeleton: 'latency',
+      zh: '系统响应请求所需的延迟时间',
+      lemma: 'latency',
+      relatedExpressionIds: ['old-expression'],
+    });
   });
 });

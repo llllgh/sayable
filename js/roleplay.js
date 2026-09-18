@@ -17,6 +17,7 @@ import {
   roleplayPhase,
   roleplayTargetSucceeded,
 } from '../src/core/roleplay.ts';
+import { buildJudgementFeedback } from '../src/core/judgement.ts';
 import { isOnline } from '../src/platform/network.ts';
 
 let pendingSessionId = '';
@@ -64,6 +65,14 @@ function resultHTML(item, session) {
     : result.issueLevel === 'minor'
       ? '有局部小错'
       : '表达正确';
+  const retryAttempts = session.retryAttempts || [];
+  const retryAttempt = retryAttempts[retryAttempts.length - 1];
+  const retryFeedback = retryAttempt
+    ? buildJudgementFeedback(
+      retryAttempt.answer,
+      retryAttempt.judgement || { ok: retryAttempt.ok },
+    )
+    : null;
   return `<div class="stack">
     <div class="card ${communicationPassed ? 'acc' : 'rose'}">
       <div class="row" style="justify-content:space-between;align-items:flex-start">
@@ -95,11 +104,49 @@ function resultHTML(item, session) {
       <p class="tiny zh" style="margin-top:8px">下次普通复习：${inWords(item.dueAt)}</p>
     </div>
 
+    ${retryFeedback ? `<div class="card ${retryAttempt.ok ? 'acc' : 'rose'}">
+      <div class="eyebrow">第 ${retryAttempt.turn} 回合重答</div>
+      <p class="zh" style="margin-top:7px;font-weight:650">${esc(retryAttempt.ok ? '这次已经说清楚了' : retryFeedback.verdict)}</p>
+      ${retryFeedback.correction ? `<p class="en" style="margin-top:8px">${esc(retryAttempt.judgement?.fix || '')}</p>` : ''}
+      ${retryFeedback.tighter ? `<p class="en" style="margin-top:8px">${esc(retryAttempt.judgement?.tighter || '')}</p>` : ''}
+      <p class="tiny zh" style="margin-top:7px">原两轮结果和复习安排没有改变。</p>
+    </div>` : ''}
+
     <div class="roleplay-result-actions">
       <button class="btn btn-pri" id="rp-done">完成</button>
-      <button class="btn btn-ghost" id="rp-again">再练一次</button>
+      <button class="btn btn-ghost" id="rp-retry-turn" ${retryAttempts.length >= 2 ? 'disabled' : ''}>${retryAttempts.length >= 2 ? '已完成两次重答' : '练习一个回合'}</button>
+      <button class="btn btn-ghost" id="rp-again">换个情境</button>
       <button class="btn btn-ghost" id="rp-used">记录实际使用</button>
     </div>
+  </div>`;
+}
+
+function retryHTML(item, session) {
+  const turn = Number(session.result?.retryTurn) === 1 ? 1 : 2;
+  const userTurnIndex = turn === 1 ? 1 : 3;
+  const priorTurns = session.turns.slice(0, userTurnIndex);
+  return `<div class="view stack roleplay-view">
+    <button class="link mute roleplay-back" id="rp-retry-back">‹ 返回反馈</button>
+    <div class="page-head">
+      <div class="page-head-copy">
+        <div class="eyebrow">第 ${turn} 回合重答</div>
+        <h1 class="h-lg zh">只重练这一回合</h1>
+        <p class="sub zh">${esc(session.scenario)}</p>
+      </div>
+    </div>
+    <div class="roleplay-transcript">${transcriptHTML({
+      ...session,
+      turns: priorTurns,
+    })}</div>
+    <div class="roleplay-compose">
+      <textarea id="rp-retry-answer" rows="3" placeholder="重新回应这一回合">${esc(session.retryDraft || '')}</textarea>
+      <button class="mic" id="rp-retry-mic" aria-label="开始录音" title="开始录音">
+        <svg viewBox="0 0 24 24" class="ic"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5.5 11.5a6.5 6.5 0 0 0 13 0M12 18v3"/></svg>
+      </button>
+      <button class="btn btn-pri" id="rp-retry-send">检查这次</button>
+    </div>
+    <button class="btn-text" id="rp-retry-hint">再看目标表达</button>
+    <div id="rp-retry-hint-out"></div>
   </div>`;
 }
 
@@ -204,9 +251,13 @@ async function advanceRoleplay(app, item, session) {
   }
 }
 
-function bindResult(app, item) {
+function bindResult(app, item, currentSession) {
   $('#rp-done', app)?.addEventListener('click', () => leaveRoleplay());
   $('#rp-again', app)?.addEventListener('click', () => startNewRoleplay(app, item));
+  $('#rp-retry-turn', app)?.addEventListener('click', () => {
+    const session = S.startRoleplayRetry(currentSession.id);
+    if (session) renderSession(app, item, session);
+  });
   $('#rp-used', app)?.addEventListener('click', () => {
     openSheet('在哪儿用的？', `<label class="fld"><span>真实场景</span>
       <input type="text" id="rp-real-scene" placeholder="例如：客户方案评审" /></label>
@@ -220,8 +271,101 @@ function bindResult(app, item) {
   });
 }
 
+function bindRoleplayRetry(app, item, session) {
+  const textarea = $('#rp-retry-answer', app);
+  const micButton = $('#rp-retry-mic', app);
+  let recording = false;
+  let voiceInput = false;
+  let rawTranscript = '';
+  const stopRecording = () => {
+    recording = false;
+    micButton?.classList.remove('rec');
+    micButton?.setAttribute('aria-label', '开始录音');
+    SP.stop();
+  };
+  $('#rp-retry-back', app)?.addEventListener('click', () => {
+    stopRecording();
+    const paused = S.pauseRoleplayRetry(session.id);
+    renderSession(app, item, paused || session);
+  });
+  textarea?.addEventListener('input', () => {
+    S.updateRoleplayRetryDraft(session.id, textarea.value);
+  });
+  $('#rp-retry-hint', app)?.addEventListener('click', event => {
+    S.updateRoleplayRetryDraft(session.id, textarea.value, {
+      promptUsed: true,
+    });
+    $('#rp-retry-hint-out', app).innerHTML = `<div class="card flat">
+      <p class="skel en">${skel(item.skeleton)}</p>
+      <p class="zh sub" style="margin-top:5px">${esc(item.zh)}</p>
+    </div>`;
+    event.currentTarget.disabled = true;
+    event.currentTarget.textContent = '已查看目标表达';
+  });
+  micButton?.addEventListener('click', () => {
+    if (!SP.canListen()) {
+      textarea.focus();
+      toast('请使用系统键盘上的语音输入');
+      return;
+    }
+    if (recording) {
+      stopRecording();
+      return;
+    }
+    recording = true;
+    micButton.classList.add('rec');
+    micButton.setAttribute('aria-label', '停止录音');
+    SP.listen({
+      lang: 'en-US',
+      onText: (text, finalText) => {
+        voiceInput = true;
+        rawTranscript = finalText || rawTranscript || text;
+        textarea.value = text;
+        S.updateRoleplayRetryDraft(session.id, text);
+      },
+      onEnd: stopRecording,
+      onError: error => {
+        stopRecording();
+        toast(error.message);
+      },
+    });
+  });
+  $('#rp-retry-send', app)?.addEventListener('click', async event => {
+    stopRecording();
+    const answer = textarea.value.trim();
+    if (answer.split(/\s+/).filter(Boolean).length < 3) {
+      toast('至少完整回应一句');
+      return;
+    }
+    event.currentTarget.disabled = true;
+    event.currentTarget.textContent = '正在检查…';
+    try {
+      const result = await L.judgeRoleplayRetry(item, session, answer);
+      const completed = S.completeRoleplayRetry(session.id, {
+        answer,
+        inputMode: voiceInput ? 'voice' : 'text',
+        rawTranscript,
+        ok: result.ok,
+        judgement: result,
+      });
+      await S.flush();
+      if (!roleplayRouteActive(item.id)) return;
+      renderSession(app, item, completed || session);
+    } catch (error) {
+      event.currentTarget.disabled = false;
+      event.currentTarget.textContent = '检查这次';
+      toast(L.userMessage(error));
+    }
+  });
+}
+
 function renderSession(app, item, session) {
   const phase = roleplayPhase(session);
+  if (phase === 'completed' && session.retryActive) {
+    app.innerHTML = retryHTML(item, session);
+    bindRoleplayRetry(app, item, session);
+    return;
+  }
   app.innerHTML = `<div class="view stack roleplay-view">
     <button class="link mute roleplay-back" id="rp-back">‹ 暂时退出</button>
     <div class="page-head">
@@ -239,7 +383,7 @@ function renderSession(app, item, session) {
   </div>`;
   $('#rp-back', app)?.addEventListener('click', () => leaveRoleplay());
   if (phase === 'completed') {
-    bindResult(app, item);
+    bindResult(app, item, session);
   } else {
     bindInput(app, item, session);
   }
@@ -248,7 +392,7 @@ function renderSession(app, item, session) {
 async function startNewRoleplay(app, item) {
   if (!canStartRoleplay(item)) {
     app.innerHTML = `<div class="view stack roleplay-view">
-      <button class="link mute" id="rp-back">‹ 返回句库</button>
+      <button class="link mute" id="rp-back">‹ 返回表达库</button>
       <div class="card rose"><p class="zh" style="font-weight:650">当前不能开始情境对话</p>
         <p class="tiny zh" style="margin-top:7px">需要达到主动回忆阶段、已补充触发时机，并保持模型在线。</p></div>
     </div>`;
@@ -256,7 +400,7 @@ async function startNewRoleplay(app, item) {
     return;
   }
   app.innerHTML = `<div class="view stack roleplay-view">
-    <button class="link mute" id="rp-back">‹ 返回句库</button>
+    <button class="link mute" id="rp-back">‹ 返回表达库</button>
     ${thinking('正在准备一个新情境')}
   </div>`;
   $('#rp-back', app)?.addEventListener('click', () => leaveRoleplay());
@@ -269,7 +413,7 @@ async function startNewRoleplay(app, item) {
   } catch (error) {
     if (!roleplayRouteActive(item.id)) return;
     app.innerHTML = `<div class="view stack roleplay-view">
-      <button class="link mute" id="rp-back">‹ 返回句库</button>
+      <button class="link mute" id="rp-back">‹ 返回表达库</button>
       ${roleplayErrorHTML(error, '重新生成情境')}
     </div>`;
     $('#rp-back', app)?.addEventListener('click', () => leaveRoleplay());

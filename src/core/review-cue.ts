@@ -7,7 +7,9 @@ export interface ReviewCueDrill {
 
 export interface ReviewCueItem {
   box: number;
+  kind?: 'expression' | 'term';
   zh?: string;
+  sense?: string;
   trigger?: string;
   drill?: ReviewCueDrill | string | null;
 }
@@ -45,6 +47,24 @@ export function buildReviewCue(item: ReviewCueItem): ReviewCue {
   const scenarioTask = clean(drill.brief);
   const trigger = clean(item.trigger);
   const guided = reviewPromptMode(item.box) === 'guided';
+
+  if (item.kind === 'term') {
+    const sense = clean(item.sense) || meaning;
+    if (guided && sense) {
+      return {
+        brief: `在一句工作场景英文中使用这个词，表达：${sense}`,
+        ctx: sense,
+        target_zh: sense,
+        trigger,
+      };
+    }
+    return {
+      brief: scenarioTask || `根据这个工作含义完整说一句英文：${sense}`,
+      ctx: trigger || sense || scenarioTask,
+      target_zh: sense,
+      trigger,
+    };
+  }
 
   if (guided && meaning) {
     return {

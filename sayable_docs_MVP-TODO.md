@@ -1,5 +1,7 @@
 # MVP TODO —— 从原型到「可独立安装使用」的移动端应用
 
+> **历史根目录副本**：不再维护，不用于判断当前进度。产品路线和实施起点见 [`docs/PRD.md`](docs/PRD.md)，早期清单参考见 [`docs/MVP-TODO.md`](docs/MVP-TODO.md)。
+>
 > **Android MVP 状态（2026-08-31）**：已完成可签名安装版本，覆盖 Capacitor、SQLite、Keystore、每日 7 份备份、三种 LLM 协议、离线 outbox、本地通知与快捷回复、降频、Share Intent、桌面快捷入口、返回键、键盘处理和原生 TTS。发布 APK 位于 `android/app/build/outputs/apk/release/app-release.apk`。
 >
 > **尚需真实使用验证**：连接真机完成麦克风输入、权限/通知/分享验收；提供 20~30 条个人真实语料后才能完成 T6 的质量基线；完成 T8 停止说话到 final 的真机 P95 时延基线。iOS 相关项不在本轮 Android MVP 范围。

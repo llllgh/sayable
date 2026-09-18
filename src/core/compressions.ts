@@ -11,6 +11,23 @@ export interface CompressionCut {
   why: string;
 }
 
+export interface CompressionPracticeAttempt {
+  id: string;
+  at: number;
+  answer: string;
+  rawTranscript: string;
+  revised: boolean;
+  promptUsed: boolean;
+  inputMode: 'text' | 'voice' | 'unknown';
+  ok: boolean;
+  feedbackKind: 'keep' | 'correct' | 'optional';
+  mainIssue: string;
+  fix: string;
+  tighter: string;
+  verdict: string;
+  note: string;
+}
+
 export interface CompressionRecord {
   id: string;
   at: number;
@@ -22,6 +39,9 @@ export interface CompressionRecord {
   symptom: string;
   cuts: CompressionCut[];
   patterns: CompressionPattern[];
+  practiceDraft: string;
+  practicePromptUsed: boolean;
+  practiceAttempts: CompressionPracticeAttempt[];
 }
 
 interface CompressionResult {
@@ -94,6 +114,48 @@ function normalizedCuts(value: unknown): CompressionCut[] {
     : [];
 }
 
+function normalizePracticeAttempt(
+  value: unknown,
+): CompressionPracticeAttempt | null {
+  if (!isRecord(value)) return null;
+  const id = text(value.id);
+  const answer = text(value.answer);
+  if (!id || !answer) return null;
+  const feedbackKind = ['keep', 'correct', 'optional'].includes(
+    String(value.feedbackKind),
+  )
+    ? value.feedbackKind as CompressionPracticeAttempt['feedbackKind']
+    : 'keep';
+  const inputMode = value.inputMode === 'text' || value.inputMode === 'voice'
+    ? value.inputMode
+    : 'unknown';
+  return {
+    id,
+    at: Number(value.at) || 0,
+    answer,
+    rawTranscript: text(value.rawTranscript),
+    revised: Boolean(value.revised),
+    promptUsed: Boolean(value.promptUsed),
+    inputMode,
+    ok: Boolean(value.ok),
+    feedbackKind,
+    mainIssue: text(value.mainIssue),
+    fix: text(value.fix),
+    tighter: text(value.tighter),
+    verdict: text(value.verdict),
+    note: text(value.note),
+  };
+}
+
+function normalizedPracticeAttempts(value: unknown): CompressionPracticeAttempt[] {
+  return Array.isArray(value)
+    ? value
+      .map(normalizePracticeAttempt)
+      .filter((item): item is CompressionPracticeAttempt => Boolean(item))
+      .slice(-2)
+    : [];
+}
+
 export function createCompressionRecord(input: NewCompression): CompressionRecord {
   return {
     id: input.id,
@@ -106,6 +168,9 @@ export function createCompressionRecord(input: NewCompression): CompressionRecor
     symptom: text(input.result.symptom),
     cuts: normalizedCuts(input.result.cuts),
     patterns: normalizedPatterns(input.result.patterns),
+    practiceDraft: '',
+    practicePromptUsed: false,
+    practiceAttempts: [],
   };
 }
 
@@ -126,5 +191,8 @@ export function normalizeCompressionRecord(value: unknown): CompressionRecord | 
     symptom: text(value.symptom),
     cuts: normalizedCuts(value.cuts),
     patterns: normalizedPatterns(value.patterns),
+    practiceDraft: text(value.practiceDraft),
+    practicePromptUsed: Boolean(value.practicePromptUsed),
+    practiceAttempts: normalizedPracticeAttempts(value.practiceAttempts),
   };
 }

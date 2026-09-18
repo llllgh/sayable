@@ -32,6 +32,7 @@ const passingResult: RoleplayResult = {
   fix: null,
   tighter: null,
   note: '',
+  retryTurn: 2,
 };
 
 function session(turns: RoleplaySession['turns']): RoleplaySession {
@@ -132,6 +133,7 @@ describe('Level 4 roleplay', () => {
       fix: null,
       tighter: 'We could start with one team.',
       note: '可以更短。',
+      retryTurn: 2,
     });
   });
 
@@ -221,6 +223,7 @@ describe('Level 4 roleplay', () => {
       fix: null,
       tighter: null,
       note: '',
+      retry_turn: 1,
     }).success).toBe(true);
   });
 
@@ -234,12 +237,44 @@ describe('Level 4 roleplay', () => {
     expect(view).toContain("S.addRoleplayTurn(session.id, 'user'");
     expect(view).toContain('await S.flush()');
     expect(view).toContain('session.turns.filter');
+    expect(view).toContain('session.turns.slice(0, userTurnIndex)');
+    expect(view).toContain('S.completeRoleplayRetry');
     expect(view).not.toContain('item.trigger');
     expect(store).toContain('roleplaySessions');
     expect(store).toContain('nextRoleplayReview');
     expect(llm).toContain("task: 'roleplay_start'");
     expect(llm).toContain("task: 'roleplay_continue'");
     expect(llm).toContain("task: 'roleplay_judge'");
+    expect(llm).toContain("task: 'roleplay_retry'");
+  });
+
+  it('restores a local retry without adding another dialogue turn', () => {
+    const normalized = normalizeRoleplaySession({
+      id: 'session-1',
+      itemId: 'item-1',
+      startedAt: 100,
+      completedAt: 200,
+      scenario: '客户担心风险',
+      role: '客户 CTO',
+      turns: [
+        { speaker: 'ai', text: 'How would you reduce the risk?', at: 100 },
+        { speaker: 'user', text: 'We can start small.', at: 120 },
+        { speaker: 'ai', text: 'What scope would you choose?', at: 140 },
+        { speaker: 'user', text: 'One department.', at: 160 },
+      ],
+      result: { ...passingResult, retryTurn: 1 },
+      retryActive: true,
+      retryDraft: 'A good starting point would be',
+      retryPromptUsed: true,
+      retryAttempts: [],
+    });
+
+    expect(normalized).toMatchObject({
+      retryActive: true,
+      retryDraft: 'A good starting point would be',
+      retryPromptUsed: true,
+    });
+    expect(normalized?.turns).toHaveLength(4);
   });
 
   it('ships a 20-case sanitized regression set', () => {

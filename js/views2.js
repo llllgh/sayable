@@ -6,7 +6,7 @@ import * as L from './llm.js';
 import * as SP from './speech.js';
 import { createIcons, Eye, EyeOff } from 'lucide';
 import { esc, skel, $, $$, toast, openSheet, closeSheet, ago, inWords, words, ladderHTML, srcPill, thinking } from './ui.js';
-import { go, drillCard, cueFor, itemSheet } from './views.js';
+import { go, drillCard, cueFor, itemSheet, openQuickCapture } from './views.js';
 import {
   batteryOptimizationIgnored,
   exactAlarmPermission,
@@ -35,6 +35,12 @@ import {
   englishLevelLabel,
   normalizeEnglishLevel,
 } from '../src/core/english-level.ts';
+import {
+  expressionMatchesQuery,
+  normalizeRecordStatus,
+  recordMatchesQuery,
+  recordNeedsAttention,
+} from '../src/core/library.ts';
 
 /* ---------------------------------------------------------------- 压缩台 */
 const compressionPatternKey = (value) => String(value || '')
@@ -47,7 +53,25 @@ function compressionItemFor(pattern) {
   return S.state.items.find(item => compressionPatternKey(item.skeleton) === key);
 }
 
-export function viewCompress(app) {
+export function viewCompress(app, arg) {
+  const source = arg?.sourceId
+    ? { kind: 'record', id: String(arg.sourceId) }
+    : null;
+  if (arg?.resultId) {
+    const restored = S.state.compressions
+      .map(normalizeCompressionRecord)
+      .find(record => record?.id === arg.resultId);
+    if (restored) {
+      S.setDraft('compression', restored.long);
+      S.updateToolTaskInput('compression', restored.long, source);
+      S.completeToolTask('compression', null, restored.id);
+    }
+  } else if (arg?.text) {
+    S.setDraft('compression', String(arg.text));
+    S.updateToolTaskInput('compression', String(arg.text), source);
+  }
+  const task = S.getToolTask('compression');
+  const compressionDraft = task.input || S.getDraft('compression');
   const history = S.state.compressions
     .map(normalizeCompressionRecord)
     .filter(Boolean);
@@ -65,6 +89,9 @@ export function viewCompress(app) {
         <h1 class="h-lg zh">精简表达</h1>
         <p class="sub zh">保留重点，把一段话压缩到 15 秒。</p>
       </div>
+      ${task.source?.kind === 'record'
+        ? '<button class="btn btn-sm btn-ghost" id="cp-back">返回记录</button>'
+        : ''}
     </div>
 
     ${history.length ? `<div class="metrics">
@@ -74,7 +101,7 @@ export function viewCompress(app) {
 
     <div class="card" id="compression-input">
       <div class="row" style="align-items:flex-start">
-        <textarea class="grow" id="cp" rows="6" placeholder="输入或说出一段想精简的话，中英文均可。"></textarea>
+        <textarea class="grow" id="cp" rows="6" placeholder="输入或说出一段想精简的话，中英文均可。">${esc(compressionDraft)}</textarea>
         <button class="mic" id="cp-mic" aria-label="开始录音" title="开始录音"><svg viewBox="0 0 24 24" class="ic"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5.5 11.5a6.5 6.5 0 0 0 13 0M12 18v3"/></svg></button>
       </div>
       <div class="row" style="justify-content:space-between;margin-top:10px">
@@ -113,8 +140,10 @@ export function viewCompress(app) {
   };
   const wc = () => { $('#cp-wc').textContent = words(ta.value) + ' 词'; };
   const reuseInput = (value) => {
+    S.resetToolTask('compression', value);
     $('#compression-input').hidden = false;
     ta.value = value;
+    S.setDraft('compression', value);
     wc();
     ta.focus({ preventScroll: true });
     ta.scrollIntoView({ behavior: 'smooth', block: 'center' });
@@ -132,7 +161,7 @@ export function viewCompress(app) {
       ? record.patterns.map((pattern, index) => {
         const existing = compressionItemFor(pattern);
         const label = existing
-          ? (existing.status === 'retired' ? '已淘汰 · 可在句库恢复' : '已在句库')
+          ? (existing.status === 'retired' ? '已淘汰 · 可在表达库恢复' : '已在表达库')
           : '收编并立刻造句';
         return `<div class="card acc">
           <p class="skel en">${skel(pattern.skeleton)}</p>
@@ -176,18 +205,31 @@ export function viewCompress(app) {
           <p class="tiny zh" style="margin-top:2px">${esc(cut.why)}</p></div></div>`).join('')}
       </div>` : ''}
 
-      <div class="sec" id="cp-patterns"><span class="eyebrow">可加入句库的句型</span><hr/></div>
+      <div class="card flat">
+        <p class="zh" style="font-weight:600">脱稿重述这段意思</p>
+        <p class="tiny zh" style="margin-top:5px">不要求复现精简版本，也不需要先把句型加入表达库。</p>
+        <button class="btn btn-pri btn-blk" id="cp-practice" style="margin-top:12px" ${record.practiceAttempts.length >= 2 ? 'disabled' : ''}>
+          ${record.practiceAttempts.length >= 2 ? '已完成两次重述' : record.practiceAttempts.length ? '再练一次' : '开始重述'}
+        </button>
+      </div>
+
+      <div class="sec" id="cp-patterns"><span class="eyebrow">可加入表达库的句型</span><hr/></div>
       ${patternCards}
       <div id="cp-drill"></div>
     </div>`;
 
     $('#cp-new')?.addEventListener('click', () => {
+      S.resetToolTask('compression', record.long);
+      S.setDraft('compression', record.long);
+      ta.value = record.long;
+      wc();
       out.innerHTML = '';
       $('#compression-input').hidden = false;
       ta.focus({ preventScroll: true });
       $('#compression-input').scrollIntoView({ behavior: 'smooth', block: 'start' });
     });
     $('#cp-say')?.addEventListener('click', () => SP.say(record.short));
+    $('#cp-practice')?.addEventListener('click', () => renderRestatement(record));
     $$('[data-reuse]', out).forEach(button => button.addEventListener('click', () => {
       reuseInput(button.dataset.reuse === 'short' ? record.short : record.long);
     }));
@@ -197,8 +239,8 @@ export function viewCompress(app) {
       if (existing) {
         button.disabled = true;
         button.textContent = existing.status === 'retired'
-          ? '已淘汰 · 可在句库恢复'
-          : '已在句库';
+          ? '已淘汰 · 可在表达库恢复'
+          : '已在表达库';
         return;
       }
       const item = S.addItem({
@@ -216,6 +258,8 @@ export function viewCompress(app) {
       button.textContent = '已收编';
       const drill = drillCard(item, cueFor(item), {
         label: '立刻造句',
+        sessionSource: 'compression',
+        sessionSourceId: `${record.id}:${index}`,
         onGraded: () => {
           toast('已收编 · 其它推荐仍保留在这里');
           $('#cp-patterns')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
@@ -227,7 +271,156 @@ export function viewCompress(app) {
     }));
   };
 
-  ta.addEventListener('input', wc);
+  const renderRestatement = (record, feedback = null) => {
+    const attempts = record.practiceAttempts || [];
+    if (!feedback && attempts.length >= 2) {
+      renderCompression(record);
+      return;
+    }
+    const last = feedback || attempts[attempts.length - 1] || null;
+    out.innerHTML = `<div class="stack">
+      <div class="page-head">
+        <div class="page-head-copy">
+          <div class="eyebrow">脱稿重述 · ${attempts.length} / 2</div>
+          <h2 class="h-lg zh">保留原意，再说一遍</h2>
+        </div>
+        <button class="btn btn-sm btn-ghost" id="cp-practice-back">返回结果</button>
+      </div>
+      ${record.kept ? `<div class="card flat"><div class="eyebrow">需要保留的信息</div>
+        <p class="zh" style="margin-top:7px">${esc(record.kept)}</p></div>` : ''}
+      <details class="result-details" id="cp-practice-source">
+        <summary>再看原文</summary>
+        <p class="en" style="padding:8px 0 12px;line-height:1.55">${esc(record.long)}</p>
+      </details>
+      <div class="card">
+        <p class="tiny zh">先不看参考，用自己的话重述核心信息和限定条件。</p>
+        <div class="answer-compose" style="margin-top:12px">
+          <textarea id="cp-practice-answer" rows="4" placeholder="说出或输入英文">${esc(record.practiceDraft || '')}</textarea>
+          <button class="mic" id="cp-practice-mic" aria-label="开始录音" title="开始录音">
+            <svg viewBox="0 0 24 24" class="ic"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5.5 11.5a6.5 6.5 0 0 0 13 0M12 18v3"/></svg>
+          </button>
+        </div>
+        <button class="btn btn-pri btn-blk" id="cp-practice-check" style="margin-top:12px" ${attempts.length >= 2 ? 'disabled' : ''}>${attempts.length >= 2 ? '已完成两次重述' : '检查这次'}</button>
+      </div>
+      ${last ? `<div class="card ${last.ok ? 'acc' : 'rose'}">
+        <div class="eyebrow">${last.ok ? '这次已经说清楚了' : '还需调整'}</div>
+        <p class="zh" style="margin-top:7px;font-weight:600">${esc(last.verdict || '')}</p>
+        ${last.mainIssue ? `<p class="zh" style="margin-top:8px">${esc(last.mainIssue)}</p>` : ''}
+        ${last.fix ? `<p class="en" style="margin-top:9px">${esc(last.fix)}</p>` : ''}
+        ${last.tighter ? `<p class="en" style="margin-top:9px">${esc(last.tighter)}</p>
+          <p class="tiny zh" style="margin-top:5px">原句没有错，这是可选版本。</p>` : ''}
+        ${last.note ? `<p class="tiny zh" style="margin-top:7px">${esc(last.note)}</p>` : ''}
+      </div>` : ''}
+    </div>`;
+    const practiceInput = $('#cp-practice-answer');
+    const practiceMic = $('#cp-practice-mic');
+    let practiceRecording = false;
+    let rawTranscript = '';
+    let voiceInput = false;
+    const stopPracticeRecording = () => {
+      practiceRecording = false;
+      practiceMic?.classList.remove('rec');
+      practiceMic?.setAttribute('aria-label', '开始录音');
+      SP.stop();
+    };
+    $('#cp-practice-back')?.addEventListener('click', () => {
+      stopPracticeRecording();
+      renderCompression(normalizeCompressionRecord(
+        S.state.compressions.find(item => item.id === record.id),
+      ) || record);
+    });
+    $('#cp-practice-source')?.addEventListener('toggle', event => {
+      if (event.currentTarget.open) {
+        S.updateCompressionPracticeDraft(record.id, practiceInput.value, {
+          promptUsed: true,
+        });
+      }
+    });
+    practiceInput?.addEventListener('input', () => {
+      S.updateCompressionPracticeDraft(record.id, practiceInput.value);
+    });
+    practiceMic?.addEventListener('click', () => {
+      if (!SP.canListen()) {
+        practiceInput.focus();
+        toast('请使用系统键盘上的语音输入');
+        return;
+      }
+      if (practiceRecording) {
+        stopPracticeRecording();
+        return;
+      }
+      practiceRecording = true;
+      practiceMic.classList.add('rec');
+      practiceMic.setAttribute('aria-label', '停止录音');
+      SP.listen({
+        lang: 'en-US',
+        onText: (text, finalText) => {
+          voiceInput = true;
+          rawTranscript = finalText || rawTranscript || text;
+          practiceInput.value = text;
+          S.updateCompressionPracticeDraft(record.id, text);
+        },
+        onEnd: stopPracticeRecording,
+        onError: error => {
+          stopPracticeRecording();
+          toast(error.message);
+        },
+      });
+    });
+    $('#cp-practice-check')?.addEventListener('click', async event => {
+      stopPracticeRecording();
+      const answer = practiceInput.value.trim();
+      if (words(answer) < 3) {
+        toast('至少说一个完整句子');
+        return;
+      }
+      event.currentTarget.disabled = true;
+      event.currentTarget.textContent = '正在检查…';
+      try {
+        const result = await L.judgeRestatement({
+          task: 'compression',
+          original: record.long,
+          target: record.short,
+          answer,
+        });
+        const saved = S.recordCompressionPracticeAttempt(record.id, {
+          answer,
+          rawTranscript,
+          revised: Boolean(rawTranscript && rawTranscript.trim() !== answer),
+          promptUsed: Boolean(
+            S.state.compressions.find(item => item.id === record.id)
+              ?.practicePromptUsed
+          ),
+          inputMode: voiceInput ? 'voice' : 'text',
+          ok: result.ok,
+          feedbackKind: result.feedback_kind,
+          mainIssue: result.main_issue,
+          fix: result.fix,
+          tighter: result.tighter,
+          verdict: result.verdict,
+          note: result.note,
+        });
+        saved.practiceDraft = '';
+        await S.save();
+        const normalized = normalizeCompressionRecord(saved) || record;
+        renderRestatement(
+          normalized,
+          normalized.practiceAttempts[normalized.practiceAttempts.length - 1],
+        );
+      } catch (error) {
+        event.currentTarget.disabled = false;
+        event.currentTarget.textContent = '检查这次';
+        toast(L.userMessage(error));
+      }
+    });
+  };
+
+  ta.addEventListener('input', () => {
+    wc();
+    S.setDraft('compression', ta.value);
+    S.updateToolTaskInput('compression', ta.value);
+  });
+  wc();
   micButton.addEventListener('click', () => {
     if (!SP.canListen()) {
       ta.focus();
@@ -238,7 +431,12 @@ export function viewCompress(app) {
     rec = true;
     micButton.classList.add('rec');
     micButton.setAttribute('aria-label', '停止录音');
-    SP.listen({ lang: /[\u4e00-\u9fa5]/.test(ta.value) ? 'zh-CN' : 'en-US', onText: t => { ta.value = t; wc(); },
+    SP.listen({ lang: /[\u4e00-\u9fa5]/.test(ta.value) ? 'zh-CN' : 'en-US', onText: t => {
+      ta.value = t;
+      wc();
+      S.setDraft('compression', t);
+      S.updateToolTaskInput('compression', t);
+    },
       onEnd: stopRecording, onError: e => { stopRecording(); toast(e.message); } });
   });
 
@@ -246,6 +444,7 @@ export function viewCompress(app) {
     stopRecording();
     const text = ta.value.trim();
     if (words(text) < 12) { toast('至少说一段（12 词以上）才有压缩空间'); return; }
+    S.beginToolTask('compression', text);
     out.innerHTML = thinking('正在保留你的逻辑并压缩');
     compressButton.disabled = true;
     micButton.disabled = true;
@@ -261,28 +460,124 @@ export function viewCompress(app) {
         result,
       });
       S.state.compressions.unshift(record);
+      S.clearDraft('compression');
+      S.completeToolTask('compression', null, record.id);
+      if (task.source?.kind === 'record') {
+        S.markFlashHandled(task.source.id, '', {
+          kind: 'compression',
+          id: record.id,
+        });
+      }
       await S.save();
-      renderCompression(record);
+      if (app.dataset.route === 'compress') viewCompress(app);
     } catch (e) {
-      out.innerHTML = `<div class="card rose"><p class="zh sub">${esc(L.userMessage(e))}</p></div>`;
+      S.failToolTask('compression', L.userMessage(e));
+      if (app.dataset.route === 'compress') viewCompress(app);
     } finally {
-      compressButton.disabled = false;
-      micButton.disabled = false;
-      ta.readOnly = false;
+      if (compressButton.isConnected) compressButton.disabled = false;
+      if (micButton.isConnected) micButton.disabled = false;
+      if (ta.isConnected) ta.readOnly = false;
     }
   });
 
+  $('#cp-back')?.addEventListener('click', () => {
+    go('library', { section: 'records', restore: true });
+  });
   $$('[data-compression]', app).forEach(button => button.addEventListener('click', () => {
     const record = history.find(item => item.id === button.dataset.compression);
     if (!record) return;
     renderCompression(record, { historical: true });
     out.scrollIntoView({ behavior: 'smooth', block: 'start' });
   }));
+
+  if (task.status === 'ready') {
+    const record = history.find(item => item.id === task.resultId);
+    if (record) renderCompression(record);
+    else {
+      S.resetToolTask('compression', task.input);
+      out.innerHTML = '<div class="card rose"><p class="zh sub">上次结果已不在本机，请重新精简。</p></div>';
+    }
+  } else if (task.status === 'running') {
+    $('#compression-input').hidden = true;
+    out.innerHTML = thinking('正在保留你的逻辑并压缩');
+  } else if (task.status === 'failed' || task.status === 'interrupted') {
+    out.innerHTML = `<div class="card rose"><p class="zh sub">${esc(task.error || '上次请求未完成，请重试')}</p>
+      <p class="tiny zh" style="margin-top:8px">输入仍保留在上方。</p></div>`;
+  }
 }
 
 /* ---------------------------------------------------------------- 会前热身 */
+function renderPreflightResult(out, r, sc) {
+  const reuse = (r.reuse || []).map(x => ({ ...x, it: S.getItem(x.id) })).filter(x => x.it);
+  out.innerHTML = `<div class="stack">
+    ${r.avoid ? `<div class="card rose"><div class="eyebrow" style="color:var(--rose)">表达提醒</div>
+      <p class="zh" style="margin-top:7px">${esc(r.avoid)}</p></div>` : ''}
+
+    <div class="sec"><span class="eyebrow">表达库中的相关表达</span><hr/></div>
+    ${reuse.length ? reuse.map((x, k) => `<div class="card">
+      <p class="skel en">${skel(x.it.skeleton)} <button class="link" data-say="${x.it.id}">朗读</button></p>
+      <p class="zh sub" style="margin-top:4px">${esc(x.it.zh)}</p>
+      ${x.it.trigger ? `<p class="zh" style="margin-top:7px"><b>触发时机：</b>${esc(x.it.trigger)}</p>` : ''}
+      <p class="tiny zh" style="margin-top:7px">${esc(x.reason || '')}</p>
+      <div class="row" style="margin-top:11px">
+        <button class="btn btn-sm btn-pri grow" data-warm="${k}">开始练习</button>
+        <button class="btn btn-sm btn-ghost" data-real="${x.it.id}">记录已使用</button>
+      </div>
+      <div id="pf-d-${k}"></div>
+    </div>`).join('') : `<p class="dim zh">表达库里还没有跟这场会强相关的骨架。</p>`}
+
+    ${(r.fresh || []).length ? `<div class="sec"><span class="eyebrow">建议添加的表达</span><hr/></div>
+    ${(r.fresh || []).map((f, k) => {
+      const existing = S.findItemBySkeleton(f.skeleton);
+      return `<div class="card violet">
+        <p class="skel en">${skel(f.skeleton)} <button class="link" data-sayt="${esc(f.skeleton)}">朗读</button></p>
+        <p class="zh sub" style="margin-top:4px">${esc(f.zh || '')}</p>
+        <p class="zh" style="margin-top:8px"><b>触发时机：</b>${esc(f.trigger || '')}</p>
+        <p class="zh" style="margin-top:8px;font-size:13.5px">${esc(f.why || '')}</p>
+        ${(f.seeds || []).length ? `<ul class="bul en" style="margin-top:8px">${f.seeds.map(s => `<li>${esc(s)}</li>`).join('')}</ul>` : ''}
+        <button class="btn btn-sm ${existing ? 'btn-ghost' : 'btn-pri'}" style="margin-top:11px" data-fresh="${k}" ${existing ? 'disabled' : ''}>${existing ? '已在表达库' : '加入表达库'}</button>
+      </div>`;
+    }).join('')}` : ''}
+    <button class="btn btn-ghost btn-blk" id="pf-new" type="button">调整会议内容</button>
+    <div id="pf-drill"></div>
+  </div>`;
+
+  $$('[data-say]', out).forEach(b => b.addEventListener('click', () => SP.say(S.getItem(b.dataset.say)?.skeleton || '')));
+  $$('[data-sayt]', out).forEach(b => b.addEventListener('click', () => SP.say(b.dataset.sayt)));
+  $$('[data-real]', out).forEach(b => b.addEventListener('click', () => { S.markUsedReal(b.dataset.real, sc.slice(0, 40)); toast('已记入真实使用'); }));
+  $$('[data-warm]', out).forEach(b => b.addEventListener('click', () => {
+    const x = reuse[+b.dataset.warm];
+    const d = drillCard(x.it, { brief: x.drill || cueFor(x.it).brief, ctx: sc.slice(0, 40), target_zh: x.it.zh, trigger: x.it.trigger || '' }, {
+      label: '热身',
+      sessionSource: 'preflight-reuse',
+      sessionSourceId: x.it.id,
+      onGraded: () => toast('热身完成，记得在会议中用出来'),
+    });
+    $('#pf-d-' + b.dataset.warm).innerHTML = d.html; d.mount(); b.style.display = 'none';
+  }));
+  $$('[data-fresh]', out).forEach(b => b.addEventListener('click', () => {
+    const f = r.fresh[+b.dataset.fresh];
+    const it = S.addItem({ skeleton: f.skeleton, zh: f.zh, trigger: f.trigger, why: f.why, seeds: f.seeds || [], drill: f.drill ? { brief: f.drill, target_zh: f.zh } : null, srcKind: 'preflight', raw: sc });
+    const d = drillCard(it, { brief: f.drill || cueFor(it).brief, ctx: sc.slice(0, 40), target_zh: f.zh, trigger: f.trigger || '' }, {
+      label: '立刻造句',
+      sessionSource: 'preflight-new',
+      sessionSourceId: it.id,
+      onGraded: () => toast('已加入表达库'),
+    });
+    $('#pf-drill').innerHTML = d.html; d.mount();
+    $('#pf-drill').scrollIntoView({ behavior: 'smooth', block: 'center' });
+  }));
+  $('#pf-new')?.addEventListener('click', () => {
+    S.resetToolTask('preflight', sc);
+    S.setDraft('preflight', sc);
+    viewPreflight($('#app'));
+  });
+}
+
 export function viewPreflight(app) {
   const p = S.state.profile;
+  const task = S.getToolTask('preflight');
+  const preflightDraft = task.input || S.getDraft('preflight');
   app.innerHTML = `<div class="view stack">
     <div class="page-head">
       <div class="page-head-copy">
@@ -292,131 +587,332 @@ export function viewPreflight(app) {
     </div>
     <div class="card">
       <label class="fld"><span>会议对象、主题和关注点</span>
-        <textarea id="pf" rows="3" placeholder="例如：与海外客户确认下周交付计划">${esc(p.upcoming || '')}</textarea></label>
-      <button class="btn btn-pri btn-blk" id="pf-go">生成会前练习</button>
+        <textarea id="pf" rows="3" placeholder="例如：与海外客户确认下周交付计划">${esc(preflightDraft || p.upcoming || '')}</textarea></label>
+      <button class="btn btn-pri btn-blk" id="pf-go" ${task.status === 'running' ? 'disabled' : ''}>${task.status === 'running' ? '正在生成…' : '生成会前练习'}</button>
     </div>
     <div id="pf-out"></div>
   </div>`;
 
+  $('#pf').addEventListener('input', event => {
+    S.setDraft('preflight', event.currentTarget.value);
+    S.updateToolTaskInput('preflight', event.currentTarget.value);
+    $('#pf-out').innerHTML = '';
+  });
   $('#pf-go').addEventListener('click', async () => {
     const sc = $('#pf').value.trim();
     if (sc.length < 6) { toast('说说这场会是什么'); return; }
     const out = $('#pf-out');
+    S.beginToolTask('preflight', sc);
     out.innerHTML = thinking('正在挑这场会真的用得上的');
+    $('#pf-go').disabled = true;
     const cands = S.relevantItems(sc, 8);
     try {
       const r = await L.preflight(sc, cands);
-      const reuse = (r.reuse || []).map(x => ({ ...x, it: S.getItem(x.id) })).filter(x => x.it);
-      out.innerHTML = `<div class="stack">
-        ${r.avoid ? `<div class="card rose"><div class="eyebrow" style="color:var(--rose)">表达提醒</div>
-          <p class="zh" style="margin-top:7px">${esc(r.avoid)}</p></div>` : ''}
-
-        <div class="sec"><span class="eyebrow">句库中的相关表达</span><hr/></div>
-        ${reuse.length ? reuse.map((x, k) => `<div class="card">
-          <p class="skel en">${skel(x.it.skeleton)} <button class="link" data-say="${x.it.id}">🔊</button></p>
-          <p class="zh sub" style="margin-top:4px">${esc(x.it.zh)}</p>
-          ${x.it.trigger ? `<p class="zh" style="margin-top:7px"><b>触发时机：</b>${esc(x.it.trigger)}</p>` : ''}
-          <p class="tiny zh" style="margin-top:7px">${esc(x.reason || '')}</p>
-          <div class="row" style="margin-top:11px">
-            <button class="btn btn-sm btn-pri grow" data-warm="${k}">开始练习</button>
-            <button class="btn btn-sm btn-ghost" data-real="${x.it.id}">记录已使用</button>
-          </div>
-          <div id="pf-d-${k}"></div>
-        </div>`).join('') : `<p class="dim zh">句库里还没有跟这场会强相关的骨架。</p>`}
-
-        ${(r.fresh || []).length ? `<div class="sec"><span class="eyebrow">建议添加的表达</span><hr/></div>
-        ${(r.fresh || []).map((f, k) => `<div class="card violet">
-          <p class="skel en">${skel(f.skeleton)} <button class="link" data-sayt="${esc(f.skeleton)}">🔊</button></p>
-          <p class="zh sub" style="margin-top:4px">${esc(f.zh || '')}</p>
-          <p class="zh" style="margin-top:8px"><b>触发时机：</b>${esc(f.trigger || '')}</p>
-          <p class="zh" style="margin-top:8px;font-size:13.5px">${esc(f.why || '')}</p>
-          ${(f.seeds || []).length ? `<ul class="bul en" style="margin-top:8px">${f.seeds.map(s => `<li>${esc(s)}</li>`).join('')}</ul>` : ''}
-          <button class="btn btn-sm btn-pri" style="margin-top:11px" data-fresh="${k}">收编</button>
-        </div>`).join('')}` : ''}
-        <div id="pf-drill"></div>
-      </div>`;
-
-      $$('[data-say]', out).forEach(b => b.addEventListener('click', () => SP.say(S.getItem(b.dataset.say)?.skeleton || '')));
-      $$('[data-sayt]', out).forEach(b => b.addEventListener('click', () => SP.say(b.dataset.sayt)));
-      $$('[data-real]', out).forEach(b => b.addEventListener('click', () => { S.markUsedReal(b.dataset.real, sc.slice(0, 40)); toast('已记入真实使用 ✓'); }));
-      $$('[data-warm]', out).forEach(b => b.addEventListener('click', () => {
-        const x = reuse[+b.dataset.warm];
-        const d = drillCard(x.it, { brief: x.drill || cueFor(x.it).brief, ctx: sc.slice(0, 40), target_zh: x.it.zh, trigger: x.it.trigger || '' }, { label: '热身', onGraded: () => toast('好 —— 20 分钟后真的说出来') });
-        $('#pf-d-' + b.dataset.warm).innerHTML = d.html; d.mount(); b.style.display = 'none';
-      }));
-      $$('[data-fresh]', out).forEach(b => b.addEventListener('click', () => {
-        const f = r.fresh[+b.dataset.fresh];
-        const it = S.addItem({ skeleton: f.skeleton, zh: f.zh, trigger: f.trigger, why: f.why, seeds: f.seeds || [], drill: f.drill ? { brief: f.drill, target_zh: f.zh } : null, srcKind: 'preflight', raw: sc });
-        const d = drillCard(it, { brief: f.drill || cueFor(it).brief, ctx: sc.slice(0, 40), target_zh: f.zh, trigger: f.trigger || '' }, { label: '立刻造句', onGraded: () => toast('收下了 · 明天再问你') });
-        $('#pf-drill').innerHTML = d.html; d.mount();
-        $('#pf-drill').scrollIntoView({ behavior: 'smooth', block: 'center' });
-      }));
+      S.completeToolTask('preflight', r);
+      if (app.dataset.route === 'preflight') viewPreflight(app);
     } catch (e) {
-      out.innerHTML = `<div class="card rose"><p class="zh sub">${esc(L.userMessage(e))}</p></div>`;
+      S.failToolTask('preflight', L.userMessage(e));
+      if (app.dataset.route === 'preflight') viewPreflight(app);
     }
   });
+
+  if (task.status === 'ready' && task.result) {
+    renderPreflightResult($('#pf-out'), task.result, task.input);
+  } else if (task.status === 'running') {
+    $('#pf').readOnly = true;
+    $('#pf-out').innerHTML = thinking('正在挑这场会真的用得上的');
+  } else if (task.status === 'failed' || task.status === 'interrupted') {
+    $('#pf-out').innerHTML = `<div class="card rose"><p class="zh sub">${esc(task.error || '上次请求未完成，请重试')}</p>
+      <p class="tiny zh" style="margin-top:8px">会议内容仍保留在上方。</p></div>`;
+  }
 }
 
-/* ---------------------------------------------------------------- 句库 */
+/* ---------------------------------------------------------------- 表达库 */
+let libSection = 'expressions';
+let libKind = 'all';
 let libFilter = 'all';
-export function viewLibrary(app) {
+let recordFilter = 'active';
+let libQuery = '';
+let libraryScrollTop = 0;
+let restoreLibraryScroll = false;
+
+const RECORD_STATUS = {
+  raw: { label: '待整理', className: 'warm' },
+  analyzing: { label: '正在整理', className: 'acc' },
+  ready: { label: '待查看', className: 'acc' },
+  failed: { label: '整理失败', className: 'rose' },
+  handled: { label: '已处理', className: '' },
+};
+
+export function saveLibraryPosition() {
+  if (location.hash === '#library') {
+    libraryScrollTop = window.scrollY;
+    restoreLibraryScroll = true;
+  }
+}
+
+function openLearningRecord() {
+  const m = S.metrics();
+  const evolution = S.evolutionPairs(6);
+  openSheet('学习记录', `
+    <div class="learning-summary">
+      <div><strong>${m.owned}</strong><span>已掌握表达</span></div>
+      <div><strong>${m.realUses}</strong><span>真实使用次数</span></div>
+    </div>
+    <div class="kv"><b>本周召回</b><span>${m.recall7} 次 · 通过率 ${m.hitRate}%</span></div>
+    <div class="kv"><b>本周新加入</b><span>${m.newThisWeek} 条 · 建议 ${S.WEEKLY_NEW_TARGET} 条</span></div>
+    <div class="sec" style="margin-top:18px"><span class="eyebrow">表达变化</span><hr/></div>
+    ${evolution.length ? evolution.map(entry => `<div class="learning-change">
+      <p class="tiny zh">${entry.days} 天前</p>
+      <p class="en before">${esc(entry.before)}</p>
+      <p class="en after">${esc(entry.after)}</p>
+    </div>`).join('') : '<p class="dim zh" style="padding:16px 0">完成练习后，这里会保留表达变化。</p>'}`);
+}
+
+function recordActions(record) {
+  const status = normalizeRecordStatus(record.status);
+  if (status === 'analyzing') {
+    return `<button class="btn btn-sm btn-ghost" data-record-action="delete" data-record-id="${esc(record.id)}">删除</button>`;
+  }
+  if (status === 'ready') {
+    return `<button class="btn btn-sm btn-pri" data-record-action="open" data-record-id="${esc(record.id)}">查看</button>
+      <button class="btn btn-sm btn-ghost" data-record-action="keep" data-record-id="${esc(record.id)}">保留原句</button>
+      <button class="btn btn-sm btn-ghost" data-record-action="compress" data-record-id="${esc(record.id)}">精简</button>`;
+  }
+  if (status === 'failed') {
+    return `<button class="btn btn-sm btn-pri" data-record-action="open" data-record-id="${esc(record.id)}">重新整理</button>
+      <button class="btn btn-sm btn-ghost" data-record-action="keep" data-record-id="${esc(record.id)}">保留</button>
+      <button class="btn btn-sm btn-ghost" data-record-action="delete" data-record-id="${esc(record.id)}">删除</button>`;
+  }
+  if (status === 'handled') {
+    return `<button class="btn btn-sm btn-ghost" data-record-action="${record.processedResult?.kind === 'compression' ? 'result' : 'open'}" data-record-id="${esc(record.id)}">${record.processedResult?.kind === 'compression' ? '回看精简' : record.analysis ? '回看' : '再次整理'}</button>
+      <button class="btn btn-sm btn-ghost" data-record-action="compress" data-record-id="${esc(record.id)}">精简</button>`;
+  }
+  return `<button class="btn btn-sm btn-pri" data-record-action="open" data-record-id="${esc(record.id)}">整理</button>
+    <button class="btn btn-sm btn-ghost" data-record-action="compress" data-record-id="${esc(record.id)}">精简</button>
+    <button class="btn btn-sm btn-ghost" data-record-action="delete" data-record-id="${esc(record.id)}">删除</button>`;
+}
+
+export function viewLibrary(app, arg = {}) {
+  if (arg.section === 'records' || arg.section === 'expressions') {
+    libSection = arg.section;
+  }
+  if (arg.restore) restoreLibraryScroll = true;
   const m = S.metrics();
   const all = S.state.items;
+  const records = S.state.inbox;
+  const searchedItems = all.filter(item => expressionMatchesQuery(item, libQuery));
+  const expressionCount = all.filter(item => item.kind !== 'term' && item.status !== 'retired').length;
+  const termCount = all.filter(item => item.kind === 'term' && item.status !== 'retired').length;
+  const kindItems = searchedItems.filter(item => (
+    libKind === 'all' || item.kind === libKind
+  ));
+  const searchedRecords = records.filter(record => recordMatchesQuery(record, libQuery));
   const map = {
-    all: all.filter(i => i.status !== 'retired'),
-    due: S.dueItems(),
-    silent: all.filter(i => i.status !== 'retired' && i.mine.length === 0),
-    owned: all.filter(i => i.status === 'owned'),
-    retired: all.filter(i => i.status === 'retired'),
+    all: kindItems.filter(i => i.status !== 'retired'),
+    due: kindItems.filter(i => i.status !== 'retired' && i.dueAt <= Date.now()),
+    silent: kindItems.filter(i => i.status !== 'retired' && i.history.length === 0),
+    owned: kindItems.filter(i => i.status === 'owned'),
+    retired: kindItems.filter(i => i.status === 'retired'),
   };
   const list = map[libFilter] || map.all;
-  const ev = S.evolutionPairs(4);
+  const recordMap = {
+    active: searchedRecords.filter(record => {
+      const status = normalizeRecordStatus(record.status);
+      return status === 'raw' || status === 'analyzing' || status === 'failed';
+    }),
+    ready: searchedRecords.filter(record => normalizeRecordStatus(record.status) === 'ready'),
+    handled: searchedRecords.filter(record => normalizeRecordStatus(record.status) === 'handled'),
+  };
+  const recordList = recordMap[recordFilter] || recordMap.active;
+  const attentionCount = records.filter(record => recordNeedsAttention(record.status)).length;
+  const quickDraft = S.getDraft('quickCapture').trim();
 
   app.innerHTML = `<div class="view stack">
-    <div class="page-head"><div class="page-head-copy"><h1 class="h-lg zh">句库</h1>
-      <p class="sub zh">${m.total} 个表达 · ${m.owned} 个已掌握 · 实际使用 ${m.realUses} 次</p></div></div>
+    <div class="page-head"><div class="page-head-copy"><h1 class="h-lg zh">表达库</h1>
+      <p class="sub zh">${expressionCount} 个表达 · ${termCount} 个词汇 · ${records.length} 条记录</p></div>
+      <button class="btn btn-sm btn-ghost" id="learning-record">学习记录</button></div>
 
-    <div class="seg">
-      ${[['all', `全部 ${map.all.length}`], ['due', `到期 ${map.due.length}`], ['silent', `没说过 ${map.silent.length}`], ['owned', `已内化 ${map.owned.length}`]]
-        .map(([k, t]) => `<button class="${libFilter === k ? 'on' : ''}" data-f="${k}">${t}</button>`).join('')}
+    <label class="library-search">
+      <span class="sr-only">搜索表达和记录</span>
+      <input id="library-search" type="search" value="${esc(libQuery)}" placeholder="搜索中文、英文或原文" autocomplete="off" />
+    </label>
+
+    <div class="library-sections" role="tablist" aria-label="表达库内容">
+      <button type="button" role="tab" data-library-section="expressions" aria-selected="${libSection === 'expressions'}" class="${libSection === 'expressions' ? 'on' : ''}">
+        <strong>表达</strong><span>${m.total}</span>
+      </button>
+      <button type="button" role="tab" data-library-section="records" aria-selected="${libSection === 'records'}" class="${libSection === 'records' ? 'on' : ''}">
+        <strong>记录</strong><span>${records.length + (quickDraft ? 1 : 0)}${attentionCount ? ` · ${attentionCount} 待办` : ''}</span>
+      </button>
     </div>
 
-    ${libFilter === 'silent' && map.silent.length ? `<div class="card acc"><p class="zh sub">这些表达还没有完成过口头练习。</p></div>` : ''}
+    <section class="library-tools" aria-label="表达工具">
+      <button type="button" data-nav="compress">
+        <span class="grow"><strong>精简表达</strong><small>保留重点，把长段落说短</small></span><span aria-hidden="true">›</span>
+      </button>
+      <button type="button" data-nav="preflight">
+        <span class="grow"><strong>会前准备</strong><small>准备马上会用到的表达</small></span><span aria-hidden="true">›</span>
+      </button>
+    </section>
 
-    <div class="card flat" style="padding:6px 15px">
-      ${list.length ? list.map(i => `<div class="li" style="cursor:pointer" data-item="${i.id}">
-        <div class="grow">
-          <p class="skel en" style="font-size:15.5px">${skel(i.skeleton)}</p>
-          <p class="tiny zh" style="margin-top:3px">${srcPill(i.source.kind)} ${esc(i.zh)}</p>
-          <div class="chips" style="margin-top:6px">
-            ${i.mine.length ? `<span class="chip acc">练习 ${i.mine.length} 次</span>` : `<span class="chip warm">未练习</span>`}
-            ${i.usedReal.length ? `<span class="chip violet">使用 ${i.usedReal.length} 次</span>` : ''}
-            <span class="chip">${i.dueAt === Infinity ? '已完成' : inWords(i.dueAt) + '复习'}</span>
+    ${libSection === 'expressions' ? `
+      <div class="seg library-kind-filter" aria-label="学习内容类型">
+        ${[
+          ['all', `全部 ${expressionCount + termCount}`],
+          ['expression', `表达 ${expressionCount}`],
+          ['term', `词汇 ${termCount}`],
+        ].map(([kind, label]) => `<button class="${libKind === kind ? 'on' : ''}" data-kind="${kind}">${label}</button>`).join('')}
+      </div>
+      <div class="seg">
+        ${[['all', '全部'], ['due', '到期'], ['silent', '未练习'], ['owned', '已掌握']]
+          .map(([k, t]) => `<button class="${libFilter === k ? 'on' : ''}" data-f="${k}">${t}</button>`).join('')}
+      </div>
+      <div class="library-list">
+        ${list.length ? list.map(i => `<button type="button" class="library-item" data-item="${i.id}">
+          <span class="grow">
+            ${i.kind === 'term' ? '<span class="chip warm">专业词汇</span>' : ''}
+            <span class="skel en">${skel(i.skeleton)}</span>
+            <span class="library-item-meaning zh">${esc(i.zh)}</span>
+            <span class="library-item-state">${i.history.length ? `练习 ${i.history.length} 次` : '未练习'} · ${i.dueAt === Infinity ? '已完成' : `${inWords(i.dueAt)}复习`}</span>
+          </span>
+          <span>${ladderHTML(i.box, i.status === 'owned', { labeled: true })}</span>
+        </button>`).join('') : `<div class="empty"><p class="zh">${libQuery ? '没有匹配的内容' : '这一栏还没有内容'}</p></div>`}
+      </div>
+      ${map.retired.length ? `<p class="dim zh center"><button class="link mute" data-f="retired">已归档 ${map.retired.length} 个</button></p>` : ''}
+    ` : `
+      <div class="seg">
+        ${[['active', `待处理 ${recordMap.active.length}`], ['ready', `待查看 ${recordMap.ready.length}`], ['handled', `已处理 ${recordMap.handled.length}`]]
+          .map(([k, t]) => `<button class="${recordFilter === k ? 'on' : ''}" data-rf="${k}">${t}</button>`).join('')}
+      </div>
+      <div class="library-list record-list">
+        ${quickDraft && recordFilter === 'active' && !libQuery ? `<article class="record-item">
+          <div class="record-head"><span class="chip warm">草稿</span><span class="tiny">尚未存入记录</span></div>
+          <p class="record-text zh">${esc(quickDraft)}</p>
+          <div class="record-actions">
+            <button class="btn btn-sm btn-pri" id="record-draft-continue">继续写</button>
+            <button class="btn btn-sm btn-ghost" id="record-draft-save">存好</button>
+            <button class="btn btn-sm btn-ghost" id="record-draft-delete">删除</button>
           </div>
-        </div>
-        <div style="text-align:right">${ladderHTML(i.box, i.status === 'owned', { labeled: true })}</div>
-      </div>`).join('') : `<div class="empty"><div class="big">◍</div><p class="zh">这一栏是空的</p></div>`}
-    </div>
-
-    ${map.retired.length ? `<p class="dim zh center"><button class="link mute" data-f="retired">已淘汰 ${map.retired.length} 个</button></p>` : ''}
-
-    ${ev.length ? `<div class="sec"><span class="eyebrow" style="color:var(--violet)">进化对照</span><hr/></div>
-      ${ev.map(e => `<div class="card violet">
-        <p class="tiny zh" style="margin-bottom:8px">${e.days} 天前 → 现在</p>
-        <div class="compare">
-          <div class="before"><div class="wc" style="color:var(--rose)">当时 · ${words(e.before)} 词</div><p class="en" style="font-size:13px">${esc(e.before)}</p></div>
-          <div class="after"><div class="wc" style="color:var(--acc)">现在 · ${words(e.after)} 词</div><p class="en" style="font-size:14px">${esc(e.after)}</p></div>
-        </div></div>`).join('')}` : ''}
-
-    <div class="card flat">
-      <div class="eyebrow">这一周</div>
-      <div class="kv"><b>召回次数</b><span>${m.recall7} 次 · 通过率 ${m.hitRate}%</span></div>
-      <div class="kv"><b>新收编</b><span>${m.newThisWeek} 条 · 建议 ${S.WEEKLY_NEW_TARGET} 条</span></div>
-    </div>
+        </article>` : ''}
+        ${recordList.length ? recordList.map(record => {
+          const status = normalizeRecordStatus(record.status);
+          const meta = RECORD_STATUS[status];
+          return `<article class="record-item">
+            <div class="record-head"><span class="chip ${meta.className}">${meta.label}</span><span class="tiny">${ago(record.at)}</span></div>
+            <p class="record-text ${/[\u4e00-\u9fa5]/.test(record.text) ? 'zh' : 'en'}">${esc(record.text)}</p>
+            ${status === 'failed' && record.failReason ? `<p class="tiny record-error">${esc(record.failReason)}</p>` : ''}
+            ${status === 'analyzing' ? '<p class="tiny zh">已在后台整理，可以先离开。</p>' : ''}
+            <div class="record-actions">${recordActions(record)}</div>
+          </article>`;
+        }).join('') : (!quickDraft || recordFilter !== 'active' || libQuery
+          ? `<div class="empty"><p class="zh">${libQuery ? '没有匹配的记录' : '这一栏还没有记录'}</p></div>`
+          : '')}
+      </div>
+    `}
   </div>`;
 
-  $$('[data-f]', app).forEach(b => b.addEventListener('click', () => { libFilter = b.dataset.f; viewLibrary(app); }));
+  $('#learning-record', app)?.addEventListener('click', openLearningRecord);
+  $('#library-search', app)?.addEventListener('input', event => {
+    libQuery = event.currentTarget.value;
+    libraryScrollTop = window.scrollY;
+    restoreLibraryScroll = true;
+    viewLibrary(app, { section: libSection, focusSearch: true });
+  });
+  $$('[data-library-section]', app).forEach(button => button.addEventListener('click', () => {
+    libSection = button.dataset.librarySection;
+    libraryScrollTop = 0;
+    restoreLibraryScroll = false;
+    viewLibrary(app);
+  }));
+  $$('[data-nav]', app).forEach(button => button.addEventListener(
+    'click',
+    () => {
+      saveLibraryPosition();
+      if (button.dataset.nav === 'compress') {
+        S.setToolTaskSource('compression', null);
+      }
+      go(button.dataset.nav);
+    },
+  ));
+  $$('[data-f]', app).forEach(b => b.addEventListener('click', () => {
+    libFilter = b.dataset.f;
+    libraryScrollTop = 0;
+    viewLibrary(app);
+  }));
+  $$('[data-kind]', app).forEach(button => button.addEventListener('click', () => {
+    libKind = button.dataset.kind;
+    libraryScrollTop = 0;
+    viewLibrary(app);
+  }));
+  $$('[data-rf]', app).forEach(b => b.addEventListener('click', () => {
+    recordFilter = b.dataset.rf;
+    libraryScrollTop = 0;
+    viewLibrary(app);
+  }));
   $$('[data-item]', app).forEach(b => b.addEventListener('click', () => itemSheet(b.dataset.item)));
+  $$('[data-record-action]', app).forEach(button => button.addEventListener('click', () => {
+    const record = S.getFlash(button.dataset.recordId);
+    if (!record) return;
+    const action = button.dataset.recordAction;
+    if (action === 'delete') {
+      S.dropFlash(record.id);
+      viewLibrary(app);
+      return;
+    }
+    if (action === 'keep') {
+      S.markFlashHandled(record.id);
+      toast('已保留原句');
+      viewLibrary(app);
+      return;
+    }
+    saveLibraryPosition();
+    if (action === 'compress') {
+      go('compress', { text: record.text, sourceId: record.id });
+      return;
+    }
+    if (action === 'result' && record.processedResult?.kind === 'compression') {
+      go('compress', {
+        resultId: record.processedResult.id,
+        sourceId: record.id,
+      });
+      return;
+    }
+    go('capture', { flashId: record.id });
+  }));
+  $('#record-draft-continue', app)?.addEventListener('click', () => {
+    openQuickCapture(() => {
+      if (app.dataset.route === 'library') viewLibrary(app);
+    });
+  });
+  $('#record-draft-save', app)?.addEventListener('click', async event => {
+    event.currentTarget.disabled = true;
+    try {
+      await S.saveQuickCapture(quickDraft);
+      toast('已存到记录');
+      viewLibrary(app);
+    } catch {
+      event.currentTarget.disabled = false;
+      toast('保存失败，请重试');
+    }
+  });
+  $('#record-draft-delete', app)?.addEventListener('click', () => {
+    S.clearDraft('quickCapture');
+    viewLibrary(app);
+  });
+
+  if (restoreLibraryScroll) {
+    const target = libraryScrollTop;
+    restoreLibraryScroll = false;
+    requestAnimationFrame(() => window.scrollTo({ top: target, behavior: 'instant' }));
+  }
+  if (arg.focusSearch) {
+    requestAnimationFrame(() => {
+      const search = $('#library-search', app);
+      search?.focus({ preventScroll: true });
+      search?.setSelectionRange(search.value.length, search.value.length);
+    });
+  }
 }
 
 /* ---------------------------------------------------------------- 画像 */
@@ -426,7 +922,7 @@ const parse = (s) => (s || '').split(/[、,，\n;；]+/).map(x => x.trim()).filt
 export function profileSheet() {
   const p = S.state.profile;
   const level = p.englishLevel || { scale: 'cefr', score: '', cefr: '' };
-  openSheet('我的画像', `
+  openSheet('学习偏好', `
     <p class="tiny zh" style="margin-bottom:14px">这些选填信息只用于让分析和练习贴合你的实际场景。</p>
     <label class="fld"><span>岗位 / 你在做什么</span><input type="text" id="p-role" value="${esc(p.role)}" placeholder="填写岗位或职责（选填）" /></label>
     <label class="fld"><span>为什么要学英语</span><textarea id="p-goal" rows="2" placeholder="填写你希望用英语完成什么（选填）">${esc(p.goal || '')}</textarea></label>
@@ -685,7 +1181,7 @@ export function settingsSheet(onChange) {
       <p class="zh" style="font-weight:600">${S.isLive() ? '模型已接入' : '尚未接入模型'}</p>
       <p class="tiny zh" style="margin-top:5px">${S.isLive()
         ? `${profileLabel}配置已启用。学习记录保存在本机，凭证单独安全存放。`
-        : '闪存可离线保存；分析、压缩和判卷需要先验证模型凭证。'}</p>
+        : '记录可离线保存；分析、压缩和判卷需要先验证模型凭证。'}</p>
     </div>
 
     <label class="fld"><span>服务区域</span>
@@ -917,7 +1413,7 @@ export function settingsSheet(onChange) {
     $('#s-test-notification').addEventListener('click', async () => {
       const item = S.dueItems()[0] || S.live()[0];
       if (!item) {
-        toast('句库里还没有可测试的骨架');
+        toast('表达库里还没有可测试的骨架');
         return;
       }
       toast(await showTestRecall(item) ? '测试通知已发送' : '请在 Android App 内测试');

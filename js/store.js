@@ -67,6 +67,24 @@ import {
   roleplayCommunicationPassed,
   roleplayTargetSucceeded,
 } from '../src/core/roleplay.ts';
+import {
+  createPracticeSessionRecord,
+  normalizePracticeSession,
+  practiceItemSnapshot,
+  practiceSessionKey,
+} from '../src/core/practice-session.ts';
+import {
+  normalizeRecordStatus,
+} from '../src/core/library.ts';
+import {
+  learningItemKey,
+  normalizeLearningItem,
+  normalizeLearningItemKind,
+} from '../src/core/learning-items.ts';
+import {
+  emptyToolTask,
+  normalizeToolTasks,
+} from '../src/core/tool-tasks.ts';
 
 const KEY = 'sayable.v1';
 const WEEK = 7 * 864e5;
@@ -87,12 +105,20 @@ export const state = {
     domains: [], counterparts: [], scenarios: [], upcoming: '',
     variety: 'international', englishLevel: null,
   },
-  items: [],
-  inbox: [],            // 闪存：只存原文，不分析、不联网、不问问题
-  draft: '',            // 输入草稿：被打断也不会丢
-  notificationReplies: [],
-  compressions: [],
-  roleplaySessions: [],
+  items: /** @type {any[]} */ ([]),
+  inbox: /** @type {any[]} */ ([]), // 闪存：只存原文，不分析、不联网、不问问题
+  draft: '',
+  drafts: {
+    quickCapture: '',
+    expression: '',
+    compression: '',
+    preflight: '',
+  },
+  notificationReplies: /** @type {any[]} */ ([]),
+  compressions: /** @type {any[]} */ ([]),
+  toolTasks: normalizeToolTasks(null),
+  practiceSessions: /** @type {any[]} */ ([]),
+  roleplaySessions: /** @type {any[]} */ ([]),
   dailyRecommendations: null,
   settings: {
     providerMode: 'profile',
@@ -119,6 +145,17 @@ export const state = {
   log: [],            // {at, type}
 };
 
+Object.defineProperty(state, 'draft', {
+  configurable: true,
+  enumerable: false,
+  get() {
+    return state.drafts.quickCapture;
+  },
+  set(value) {
+    state.drafts.quickCapture = String(value || '');
+  },
+});
+
 /* ---------------- persistence ---------------- */
 let saveQueue = Promise.resolve();
 let lastPersistenceError = null;
@@ -132,9 +169,11 @@ function persistableState() {
     profile: state.profile,
     items: state.items,
     inbox: state.inbox,
-    draft: state.draft,
+    drafts: state.drafts,
     notificationReplies: state.notificationReplies,
     compressions: state.compressions,
+    toolTasks: state.toolTasks,
+    practiceSessions: state.practiceSessions,
     roleplaySessions: state.roleplaySessions,
     dailyRecommendations: state.dailyRecommendations,
     settings,
@@ -162,17 +201,33 @@ function hydrate(d) {
         || getServiceProfile(state.settings.serviceRegion).speech.defaultVoice,
     });
   }
-  state.items = Array.isArray(d?.items) ? d.items : [];
+  state.items = Array.isArray(d?.items)
+    ? d.items.map(item => normalizeLearningItem(item))
+    : [];
   state.inbox = (Array.isArray(d?.inbox) ? d.inbox : []).map(f => ({
     status: 'raw',
     failReason: '',
     source: 'app',
     ...f,
-    status: f.status === 'analyzing' ? 'raw' : (f.status || 'raw'),
+    status: f.status === 'analyzing'
+      ? 'raw'
+      : normalizeRecordStatus(f.status),
   }));
-  state.draft = d?.draft || '';
+  state.drafts = {
+    quickCapture: String(d?.drafts?.quickCapture || ''),
+    expression: String(d?.drafts?.expression || ''),
+    compression: String(d?.drafts?.compression || ''),
+    preflight: String(d?.drafts?.preflight || ''),
+  };
   state.notificationReplies = Array.isArray(d?.notificationReplies) ? d.notificationReplies : [];
   state.compressions = Array.isArray(d?.compressions) ? d.compressions : [];
+  state.toolTasks = normalizeToolTasks(d?.toolTasks);
+  state.practiceSessions = Array.isArray(d?.practiceSessions)
+    ? d.practiceSessions
+      .map(normalizePracticeSession)
+      .filter(Boolean)
+      .slice(-200)
+    : [];
   state.roleplaySessions = Array.isArray(d?.roleplaySessions)
     ? d.roleplaySessions
       .map(normalizeRoleplaySession)
@@ -446,10 +501,17 @@ export const TRUST_BY_SRC = {
 
 export function makeItem(o) {
   const createdAt = Number(o.createdAt) || now();
-  return {
+  return normalizeLearningItem({
     id: uid(),
+    kind: normalizeLearningItemKind(o.kind),
     skeleton: o.skeleton,           // "The bottleneck has shifted from X to Y"
     zh: o.zh || '',
+    lemma: o.lemma || '',
+    sense: o.sense || '',
+    collocations: o.collocations || [],
+    anchorSentence: o.anchorSentence || '',
+    relatedExpressionIds: o.relatedExpressionIds || [],
+    domainTags: o.domainTags || [],
     trigger: o.trigger || '',       // 出现什么信号时，为了什么沟通意图调用它
     why: o.why || '',
     register: o.register || 'meeting',
@@ -469,7 +531,7 @@ export function makeItem(o) {
     usedReal: [],                   // {at, scenario}  ← 真实世界证据
     status: 'learning',
     createdAt,
-  };
+  });
 }
 
 export function normalizeSkeleton(value) {
@@ -482,14 +544,25 @@ export function normalizeSkeleton(value) {
     .trim();
 }
 
-export function findItemBySkeleton(skeleton) {
-  const signature = normalizeSkeleton(skeleton);
+export function findItemBySkeleton(skeleton, kind = 'expression') {
+  const signature = learningItemKey({
+    kind,
+    skeleton,
+    lemma: kind === 'term' ? skeleton : '',
+  });
   if (!signature) return undefined;
-  return state.items.find(item => normalizeSkeleton(item.skeleton) === signature);
+  return state.items.find(item => learningItemKey(item) === signature);
 }
 
 export function addItem(o) {
-  const existing = findItemBySkeleton(o.skeleton);
+  const normalized = normalizeLearningItem({
+    ...o,
+    kind: normalizeLearningItemKind(o.kind),
+  });
+  const existing = findItemBySkeleton(
+    normalized.skeleton,
+    normalized.kind,
+  );
   if (existing) {
     if (existing.status === 'retired') revive(existing.id);
     return existing;
@@ -504,7 +577,7 @@ export function addItem(o) {
     ? createdAt + delayDays * 86_400_000
     : 0;
   const it = makeItem({
-    ...o,
+    ...normalized,
     createdAt,
     dueAt: reviewNotBefore || createdAt,
     reviewNotBefore,
@@ -550,26 +623,91 @@ export function addFlash(text, mode, source = 'app') {
     failReason: '',
   };
   state.inbox.unshift(f);
-  if (source === 'app') state.draft = '';
-  track('flash'); save();
+  if (source === 'app') state.drafts.quickCapture = '';
+  track('flash');
   return f;
+}
+export async function saveQuickCapture(text) {
+  const value = String(text || '').trim();
+  if (!value) return null;
+  const previousDraft = state.drafts.quickCapture;
+  const previousLogLength = state.log.length;
+  const flash = addFlash(value);
+  await flush();
+  if (!lastPersistenceError) return flash;
+
+  state.inbox = state.inbox.filter(candidate => candidate.id !== flash.id);
+  state.drafts.quickCapture = previousDraft || value;
+  state.log.length = previousLogLength;
+  save();
+  throw lastPersistenceError;
 }
 export function dropFlash(id) { state.inbox = state.inbox.filter(f => f.id !== id); save(); }
 export function getFlash(id) { return state.inbox.find(f => f.id === id); }
-export function saveDraft(t) { state.draft = t || ''; save(); }
+export function updateFlashText(id, text) {
+  const flash = getFlash(id);
+  if (!flash) return null;
+  const value = String(text || '');
+  if (flash.text === value) return flash;
+  flash.text = value;
+  flash.status = 'raw';
+  flash.failReason = '';
+  delete flash.analysis;
+  delete flash.processedAt;
+  delete flash.processedResult;
+  delete flash.linkedItemIds;
+  save();
+  return flash;
+}
+export function markFlashHandled(id, itemId = '', /** @type {any} */ processedResult = null) {
+  const flash = getFlash(id);
+  if (!flash) return null;
+  const linked = new Set(Array.isArray(flash.linkedItemIds) ? flash.linkedItemIds : []);
+  if (itemId) linked.add(itemId);
+  flash.linkedItemIds = [...linked];
+  if (processedResult) flash.processedResult = processedResult;
+  flash.status = 'handled';
+  flash.failReason = '';
+  flash.processedAt = now();
+  save();
+  return flash;
+}
+const DRAFT_KINDS = new Set(['quickCapture', 'expression', 'compression', 'preflight']);
+export function getDraft(kind) {
+  if (!DRAFT_KINDS.has(kind)) throw new Error('未知草稿类型');
+  return state.drafts[kind] || '';
+}
+export function setDraft(kind, value) {
+  if (!DRAFT_KINDS.has(kind)) throw new Error('未知草稿类型');
+  state.drafts[kind] = String(value || '');
+  save();
+  return state.drafts[kind];
+}
+export function clearDraft(kind) {
+  return setDraft(kind, '');
+}
+export function saveDraft(value) {
+  return setDraft('quickCapture', value);
+}
 export function setFlashStatus(id, status, failReason = '') {
   const flash = getFlash(id);
   if (!flash) return;
-  flash.status = status;
+  flash.status = normalizeRecordStatus(status);
   flash.failReason = failReason;
+  if (flash.status === 'analyzing') {
+    delete flash.processedAt;
+    delete flash.processedResult;
+  }
   save();
 }
 export function completeFlash(id, analysis) {
   const flash = getFlash(id);
   if (!flash) return;
-  flash.status = 'done';
+  flash.status = 'ready';
   flash.failReason = '';
   flash.analysis = analysis;
+  delete flash.processedAt;
+  delete flash.processedResult;
   save();
 }
 export function pendingFlashes(limit = 3) {
@@ -577,6 +715,91 @@ export function pendingFlashes(limit = 3) {
     .filter(f => f.status === 'raw' || f.status === 'failed')
     .sort((a, b) => a.at - b.at)
     .slice(0, limit);
+}
+
+const TOOL_KINDS = new Set(['compression', 'preflight']);
+function toolTask(kind) {
+  if (!TOOL_KINDS.has(kind)) throw new Error('未知工具任务');
+  if (!state.toolTasks[kind]) state.toolTasks[kind] = emptyToolTask();
+  return state.toolTasks[kind];
+}
+export function getToolTask(kind) {
+  return toolTask(kind);
+}
+export function setToolTaskSource(kind, source = null) {
+  const task = toolTask(kind);
+  task.source = source;
+  task.updatedAt = now();
+  save();
+  return task;
+}
+export function updateToolTaskInput(kind, input, source) {
+  const task = toolTask(kind);
+  const value = String(input || '');
+  const sourceChanged = source
+    && (task.source?.kind !== source.kind || task.source?.id !== source.id);
+  if (task.input === value && !sourceChanged) return task;
+  Object.assign(task, {
+    status: 'idle',
+    input: value,
+    result: null,
+    resultId: '',
+    error: '',
+    source: source || task.source,
+    startedAt: 0,
+    updatedAt: now(),
+  });
+  save();
+  return task;
+}
+export function beginToolTask(kind, input, source) {
+  const task = toolTask(kind);
+  Object.assign(task, {
+    status: 'running',
+    input: String(input || ''),
+    result: null,
+    resultId: '',
+    error: '',
+    source: source || task.source,
+    startedAt: now(),
+    updatedAt: now(),
+  });
+  save();
+  return task;
+}
+export function completeToolTask(kind, result, resultId = '') {
+  const task = toolTask(kind);
+  Object.assign(task, {
+    status: 'ready',
+    result: result ?? null,
+    resultId: String(resultId || ''),
+    error: '',
+    updatedAt: now(),
+  });
+  save();
+  return task;
+}
+export function failToolTask(kind, error) {
+  const task = toolTask(kind);
+  Object.assign(task, {
+    status: 'failed',
+    error: String(error || ''),
+    updatedAt: now(),
+  });
+  save();
+  return task;
+}
+export function resetToolTask(kind, input = '') {
+  const task = toolTask(kind);
+  const source = task.source;
+  state.toolTasks[kind] = {
+    ...emptyToolTask(),
+    input: String(input || ''),
+    source,
+    updatedAt: now(),
+  };
+  save();
+  return state.toolTasks[kind];
 }
 export function addNotificationReplies(replies) {
   const known = new Set(state.notificationReplies.map(reply => `${reply.itemId}:${reply.receivedAt}`));
@@ -592,6 +815,51 @@ export function removeNotificationReply(itemId, answer) {
     reply.itemId === itemId && reply.answer === answer);
   if (index >= 0) state.notificationReplies.splice(index, 1);
   save();
+}
+
+export function recordCompressionPracticeAttempt(recordId, value) {
+  const record = state.compressions.find(candidate => candidate.id === recordId);
+  if (!record) throw new Error('找不到这次精简记录');
+  const attempts = Array.isArray(record.practiceAttempts)
+    ? record.practiceAttempts
+    : (record.practiceAttempts = []);
+  if (attempts.length >= 2) return record;
+  attempts.push({
+    id: String(value?.id || uid()),
+    at: Number(value?.at) || now(),
+    answer: String(value?.answer || '').trim(),
+    rawTranscript: String(value?.rawTranscript || '').trim(),
+    revised: Boolean(value?.revised),
+    promptUsed: Boolean(value?.promptUsed),
+    inputMode: value?.inputMode === 'voice' || value?.inputMode === 'text'
+      ? value.inputMode
+      : 'unknown',
+    ok: Boolean(value?.ok),
+    feedbackKind: ['keep', 'correct', 'optional'].includes(value?.feedbackKind)
+      ? value.feedbackKind
+      : 'keep',
+    mainIssue: String(value?.mainIssue || '').trim(),
+    fix: String(value?.fix || '').trim(),
+    tighter: String(value?.tighter || '').trim(),
+    verdict: String(value?.verdict || '').trim(),
+    note: String(value?.note || '').trim(),
+  });
+  track('compression_restatement', record.id);
+  save();
+  return record;
+}
+
+export function updateCompressionPracticeDraft(
+  recordId,
+  value,
+  { promptUsed = false } = {},
+) {
+  const record = state.compressions.find(candidate => candidate.id === recordId);
+  if (!record) return null;
+  record.practiceDraft = String(value || '');
+  record.practicePromptUsed = Boolean(record.practicePromptUsed || promptUsed);
+  save();
+  return record;
 }
 
 /* ---------------- 每周建议量与错峰 ---------------- */
@@ -659,7 +927,10 @@ export function markRecommendationPracticed(recommendationId, practicedAt = now(
 export function activeRoleplaySession(itemId) {
   return [...state.roleplaySessions]
     .reverse()
-    .find(session => session.itemId === itemId && !session.completedAt)
+    .find(session => (
+      session.itemId === itemId
+      && (!session.completedAt || session.retryActive)
+    ))
     || null;
 }
 
@@ -744,6 +1015,397 @@ export function completeRoleplaySession(sessionId, rawResult) {
   return session;
 }
 
+export function startRoleplayRetry(sessionId) {
+  const session = state.roleplaySessions.find(candidate => candidate.id === sessionId);
+  if (!session?.result) return null;
+  const attempts = Array.isArray(session.retryAttempts)
+    ? session.retryAttempts
+    : (session.retryAttempts = []);
+  if (attempts.length >= 2) return null;
+  session.retryActive = true;
+  save();
+  return session;
+}
+
+export function updateRoleplayRetryDraft(
+  sessionId,
+  value,
+  { promptUsed = false } = {},
+) {
+  const session = state.roleplaySessions.find(candidate => candidate.id === sessionId);
+  if (!session?.result || !session.retryActive) return session || null;
+  session.retryDraft = String(value || '');
+  session.retryPromptUsed = Boolean(session.retryPromptUsed || promptUsed);
+  save();
+  return session;
+}
+
+export function pauseRoleplayRetry(sessionId) {
+  const session = state.roleplaySessions.find(candidate => candidate.id === sessionId);
+  if (!session?.result) return session || null;
+  session.retryActive = false;
+  save();
+  return session;
+}
+
+export function completeRoleplayRetry(sessionId, value) {
+  const session = state.roleplaySessions.find(candidate => candidate.id === sessionId);
+  if (!session?.result || !session.retryActive) return session || null;
+  const attempts = Array.isArray(session.retryAttempts)
+    ? session.retryAttempts
+    : (session.retryAttempts = []);
+  if (attempts.length >= 2) return session;
+  attempts.push({
+    id: uid(),
+    turn: Number(session.result.retryTurn) === 1 ? 1 : 2,
+    answer: String(value?.answer || '').trim(),
+    inputMode: value?.inputMode === 'voice' || value?.inputMode === 'text'
+      ? value.inputMode
+      : 'unknown',
+    rawTranscript: String(value?.rawTranscript || '').trim(),
+    promptUsed: Boolean(session.retryPromptUsed),
+    ok: Boolean(value?.ok),
+    judgement: value?.judgement || null,
+    at: now(),
+  });
+  session.retryDraft = '';
+  session.retryActive = false;
+  track('roleplay_retry', session.id);
+  save();
+  return session;
+}
+
+/* ---------------- 普通练习会话 ---------------- */
+export function getPracticeSession(sessionId) {
+  return state.practiceSessions.find(session => session.id === sessionId) || null;
+}
+
+export function activePracticeSession(itemId, source, sourceId = '') {
+  const key = practiceSessionKey(itemId, source, sourceId);
+  return [...state.practiceSessions]
+    .reverse()
+    .find(session => (
+      !session.completedAt
+      && practiceSessionKey(session.itemId, session.source, session.sourceId) === key
+    )) || null;
+}
+
+export function latestPracticeSession(sources = []) {
+  const allowed = new Set(Array.isArray(sources) ? sources : [sources]);
+  return [...state.practiceSessions]
+    .reverse()
+    .find(session => (
+      !session.completedAt
+      && (!allowed.size || allowed.has(session.source))
+    )) || null;
+}
+
+export function expiredRecommendationPracticeSession(date = new Date()) {
+  const session = latestPracticeSession('recommendation');
+  const startedAt = Number(session?.startedAt) || 0;
+  if (
+    !session
+    || !startedAt
+    || localDateKey(new Date(startedAt)) === localDateKey(date)
+  ) {
+    return null;
+  }
+  return session;
+}
+
+export function ensurePracticeSession(itemId, options = {}) {
+  const item = getItem(itemId);
+  if (!item) throw new Error('找不到要练习的表达');
+  const source = String(options.source || 'practice').trim();
+  const sourceId = String(options.sourceId || '').trim();
+  const existing = activePracticeSession(itemId, source, sourceId);
+  if (existing) return existing;
+
+  const timestamp = now();
+  const session = createPracticeSessionRecord({
+    id: uid(),
+    itemId,
+    source,
+    sourceId,
+    now: timestamp,
+    cue: options.cue,
+    answer: options.answer,
+  });
+  state.practiceSessions.push(session);
+  if (state.practiceSessions.length > 200) {
+    const completedIndex = state.practiceSessions.findIndex(candidate => candidate.completedAt);
+    state.practiceSessions.splice(completedIndex >= 0 ? completedIndex : 0, 1);
+  }
+  track('practice_started', `${itemId}:${source}`);
+  save();
+  return session;
+}
+
+export function updatePracticeCue(sessionId, cue) {
+  const session = getPracticeSession(sessionId);
+  if (!session) throw new Error('找不到这次练习');
+  if (session.completedAt) return session;
+  session.cue = {
+    brief: String(cue?.brief || '').trim(),
+    context: String(cue?.context ?? cue?.ctx ?? '').trim(),
+    targetZh: String(cue?.targetZh ?? cue?.target_zh ?? '').trim(),
+    trigger: String(cue?.trigger || '').trim(),
+  };
+  session.updatedAt = now();
+  save();
+  return session;
+}
+
+export function updatePracticeDraft(sessionId, value) {
+  const session = getPracticeSession(sessionId);
+  if (!session) throw new Error('找不到这次练习');
+  if (session.completedAt) return session;
+  session.answerDraft = String(value || '');
+  session.updatedAt = now();
+  save();
+  return session;
+}
+
+export function startPracticeRetry(sessionId) {
+  const session = getPracticeSession(sessionId);
+  if (!session) throw new Error('找不到这次练习');
+  if (!session.settlement || session.completedAt) return null;
+  const retryCount = session.attempts.filter(
+    attempt => attempt.kind === 'retry' && attempt.status === 'judged',
+  ).length;
+  if (retryCount >= 2) return null;
+  if (session.phase !== 'answering') session.answerDraft = '';
+  session.retryCount = retryCount;
+  session.phase = 'answering';
+  session.updatedAt = now();
+  save();
+  return session;
+}
+
+export function markPracticePromptUsed(sessionId) {
+  const session = getPracticeSession(sessionId);
+  if (!session || session.completedAt) return session || null;
+  session.promptUsed = true;
+  session.updatedAt = now();
+  save();
+  return session;
+}
+
+export function beginPracticeAttempt(sessionId, options = {}) {
+  const session = getPracticeSession(sessionId);
+  if (!session) throw new Error('找不到这次练习');
+  if (session.completedAt) throw new Error('这次练习已经结束');
+  if (session.attempts.some(attempt => attempt.status === 'submitting')) {
+    return null;
+  }
+  const answer = String(options.answer ?? session.answerDraft ?? '');
+  const timestamp = now();
+  const requestedKind = options.kind === 'retry' || options.kind === 'reveal'
+    ? options.kind
+    : '';
+  const kind = requestedKind || (session.settlement ? 'retry' : 'initial');
+  if (session.settlement && kind !== 'retry') return null;
+  if (
+    kind === 'retry'
+    && session.attempts.filter(
+      candidate => candidate.kind === 'retry' && candidate.status === 'judged',
+    ).length >= 2
+  ) {
+    return null;
+  }
+  const attempt = {
+    id: uid(),
+    kind,
+    status: 'submitting',
+    answer,
+    rawTranscript: String(options.rawTranscript || ''),
+    confirmedText: answer,
+    revised: Boolean(
+      options.rawTranscript
+      && String(options.rawTranscript).trim() !== answer.trim()
+    ),
+    revisedAt: 0,
+    revisionStatus: 'none',
+    promptUsed: Boolean(options.promptUsed || session.promptUsed),
+    judgementSource: options.judgementSource === 'self' ? 'self' : 'model',
+    inputMode: options.inputMode === 'voice' || options.inputMode === 'text'
+      ? options.inputMode
+      : 'unknown',
+    startedAt: timestamp,
+    completedAt: 0,
+    error: '',
+    judgement: null,
+    feedback: null,
+  };
+  session.answerDraft = answer;
+  session.attempts.push(attempt);
+  session.phase = 'submitting';
+  session.updatedAt = timestamp;
+  save();
+  return attempt;
+}
+
+export function failPracticeAttempt(sessionId, attemptId, error) {
+  const session = getPracticeSession(sessionId);
+  const attempt = session?.attempts.find(candidate => candidate.id === attemptId);
+  if (!session || !attempt || session.completedAt) return session || null;
+  attempt.status = 'error';
+  attempt.completedAt = now();
+  attempt.error = String(error || '');
+  session.phase = 'answering';
+  session.updatedAt = attempt.completedAt;
+  save();
+  return session;
+}
+
+export function settlePracticeAttempt(sessionId, attemptId, ok, payload = {}) {
+  const session = getPracticeSession(sessionId);
+  if (!session) throw new Error('找不到这次练习');
+  const attempt = session.attempts.find(candidate => candidate.id === attemptId);
+  if (!attempt || !['submitting', 'error'].includes(attempt.status)) {
+    if (attempt?.status === 'judged') return session;
+    throw new Error('找不到可结算的练习尝试');
+  }
+  if (session.settlement && attempt.kind !== 'retry') return session;
+  const item = getItem(session.itemId);
+  if (!item) throw new Error('找不到要练习的表达');
+
+  const completedAt = now();
+  attempt.status = 'judged';
+  attempt.completedAt = completedAt;
+  attempt.error = '';
+  attempt.judgement = payload.judgement || null;
+  attempt.feedback = payload.feedback || null;
+  attempt.judgementSource = payload.judgementSource === 'self'
+    ? 'self'
+    : attempt.judgementSource;
+  if (attempt.kind === 'retry') {
+    session.retryCount = session.attempts.filter(
+      candidate => candidate.kind === 'retry' && candidate.status === 'judged',
+    ).length;
+    session.phase = 'feedback';
+    session.updatedAt = completedAt;
+    save();
+    return session;
+  }
+
+  const before = practiceItemSnapshot(item);
+  applyGradeToItem(item, !!ok, {
+    answer: attempt.answer,
+    ms: payload.ms || Math.max(0, completedAt - attempt.startedAt),
+    ctx: payload.ctx || session.cue.context,
+    why: payload.why || '',
+    sessionId: session.id,
+    attemptId: attempt.id,
+  }, completedAt);
+  session.settlement = {
+    attemptId: attempt.id,
+    appliedAt: completedAt,
+    passed: !!ok,
+    before,
+    after: practiceItemSnapshot(item),
+  };
+  session.phase = attempt.kind === 'reveal' ? 'revealed' : 'feedback';
+  session.updatedAt = completedAt;
+  track(ok ? 'recall_ok' : 'recall_miss');
+  track(ok ? 'practice_settled_ok' : 'practice_settled_miss', session.id);
+  save();
+  return session;
+}
+
+function samePracticeSchedule(item, snapshot) {
+  return Number(item.box) === Number(snapshot.box)
+    && Number(item.dueAt) === Number(snapshot.dueAt)
+    && Number(item.reviewNotBefore || 0) === Number(snapshot.reviewNotBefore || 0)
+    && Number(item.lastAt || 0) === Number(snapshot.lastAt || 0);
+}
+
+function restorePracticeSnapshot(item, snapshot) {
+  item.box = snapshot.box;
+  item.dueAt = snapshot.dueAt;
+  item.reviewNotBefore = snapshot.reviewNotBefore;
+  item.status = snapshot.status;
+  item.lastAt = snapshot.lastAt;
+}
+
+export function revisePracticeAttempt(
+  sessionId,
+  attemptId,
+  revisedAnswer,
+  ok,
+  payload = {},
+) {
+  const session = getPracticeSession(sessionId);
+  const attempt = session?.attempts.find(candidate => candidate.id === attemptId);
+  if (!session || !attempt || attempt.status !== 'judged' || session.completedAt) {
+    return session || null;
+  }
+  const answer = String(revisedAnswer || '').trim();
+  if (!answer) throw new Error('修订后的文字不能为空');
+  const previousAnswer = attempt.answer;
+  attempt.answer = answer;
+  attempt.confirmedText = answer;
+  attempt.revised = true;
+  attempt.revisedAt = now();
+  attempt.judgement = payload.judgement || null;
+  attempt.feedback = payload.feedback || null;
+  attempt.judgementSource = 'model';
+  attempt.revisionStatus = 'applied';
+
+  if (session.settlement?.attemptId === attempt.id) {
+    const item = getItem(session.itemId);
+    if (!item) throw new Error('找不到要练习的表达');
+    const history = Array.isArray(item.history) ? item.history : [];
+    const historyIndex = history.findIndex(
+      entry => entry.sessionId === session.id && entry.attemptId === attempt.id,
+    );
+    const hasLaterGrade = historyIndex >= 0 && historyIndex < history.length - 1;
+    if (
+      historyIndex < 0
+      || hasLaterGrade
+      || !samePracticeSchedule(item, session.settlement.after)
+    ) {
+      attempt.revisionStatus = 'schedule_pending';
+    } else {
+      restorePracticeSnapshot(item, session.settlement.before);
+      history.splice(historyIndex, 1);
+      const mine = Array.isArray(item.mine) ? item.mine : [];
+      const mineIndex = mine.findIndex(entry => (
+        Number(entry.at) === Number(session.settlement.appliedAt)
+        && entry.text === previousAnswer
+      ));
+      if (mineIndex >= 0) mine.splice(mineIndex, 1);
+      applyGradeToItem(item, !!ok, {
+        answer,
+        ms: payload.ms || Math.max(0, attempt.completedAt - attempt.startedAt),
+        ctx: payload.ctx || session.cue.context,
+        why: payload.why || '',
+        sessionId: session.id,
+        attemptId: attempt.id,
+      }, session.settlement.appliedAt);
+      session.settlement.passed = !!ok;
+      session.settlement.after = practiceItemSnapshot(item);
+    }
+  }
+  session.answerDraft = answer;
+  session.phase = 'feedback';
+  session.updatedAt = attempt.revisedAt;
+  save();
+  return session;
+}
+
+export function completePracticeSession(sessionId) {
+  const session = getPracticeSession(sessionId);
+  if (!session) return null;
+  if (!session.settlement || session.completedAt) return session;
+  session.completedAt = now();
+  session.updatedAt = session.completedAt;
+  session.phase = 'completed';
+  track('practice_completed', session.id);
+  save();
+  return session;
+}
+
 /* ---------------- 调度 ---------------- */
 export function live() { return state.items.filter(i => i.status !== 'retired'); }
 
@@ -763,21 +1425,40 @@ export function dueItems() {
 export function nextDue() { return dueItems()[0] || null; }
 
 /* 成功 → 上一格；失败 → 退一格，8 小时后再来 */
-export function grade(id, ok, payload = {}) {
-  const it = getItem(id); if (!it) return null;
-  const firstAttempt = it.history.length === 0;
+function applyGradeToItem(it, ok, payload = {}, gradedAt = now()) {
+  const history = Array.isArray(it.history) ? it.history : (it.history = []);
+  const mine = Array.isArray(it.mine) ? it.mine : (it.mine = []);
+  const firstAttempt = history.length === 0;
   const reviewNotBefore = firstAttempt
     ? Math.max(0, Number(it.reviewNotBefore) || 0)
     : 0;
-  const lastPassedAt = [...it.history].reverse().find(h => h.ok)?.at || 0;
-  it.history.push({ at: now(), ok: !!ok, answer: payload.answer || '', ms: payload.ms || 0, ctx: payload.ctx || '', why: payload.why || '' });
-  if (payload.answer) it.mine.push({ text: payload.answer, at: now(), ctx: payload.ctx || '' });
-  it.lastAt = now();
-  const next = nextReview(it, !!ok, now(), lastPassedAt);
+  const lastPassedAt = [...history].reverse().find(entry => entry.ok)?.at || 0;
+  const event = {
+    at: gradedAt,
+    ok: !!ok,
+    answer: payload.answer || '',
+    ms: payload.ms || 0,
+    ctx: payload.ctx || '',
+    why: payload.why || '',
+  };
+  if (payload.sessionId) event.sessionId = payload.sessionId;
+  if (payload.attemptId) event.attemptId = payload.attemptId;
+  history.push(event);
+  if (payload.answer) {
+    mine.push({ text: payload.answer, at: gradedAt, ctx: payload.ctx || '' });
+  }
+  it.lastAt = gradedAt;
+  const next = nextReview(it, !!ok, gradedAt, lastPassedAt);
   it.box = next.box;
   it.dueAt = applyReviewNotBefore(next, reviewNotBefore).dueAt;
   if (firstAttempt) it.reviewNotBefore = 0;
   recomputeStatus(it);
+  return it;
+}
+
+export function grade(id, ok, payload = {}) {
+  const it = getItem(id); if (!it) return null;
+  applyGradeToItem(it, ok, payload);
   track(ok ? 'recall_ok' : 'recall_miss');
   save();
   return it;

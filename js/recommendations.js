@@ -8,10 +8,15 @@ import {
   thinking,
   toast,
 } from './ui.js';
-import { drillCard, go } from './views.js';
+import {
+  bindTodayModeControls,
+  drillCard,
+  go,
+  setTodayMode,
+  todayModeHTML,
+} from './views.js';
 import { profileSheet } from './views2.js';
 import {
-  recommendationKey,
   recommendationProgress,
   selectRemainingRecommendation,
 } from '../src/core/recommendations.ts';
@@ -24,9 +29,9 @@ function itemForRecommendation(recommendation) {
     : null;
   if (linked) return linked;
 
-  const key = recommendationKey(recommendation.skeleton);
-  return S.state.items.find(
-    item => recommendationKey(item.skeleton) === key,
+  return S.findItemBySkeleton(
+    recommendation.skeleton,
+    recommendation.kind,
   ) || null;
 }
 
@@ -60,12 +65,18 @@ async function generateDeck() {
 }
 
 function headerHTML() {
-  return `<div class="page-head">
+  return `<div class="page-head today-recommendation-head">
     <div class="page-head-copy">
-      <h1 class="h-lg zh">今日推荐</h1>
+      <h1 class="h-lg zh">今天</h1>
     </div>
     <button class="btn btn-sm btn-ghost" id="recommend-profile">学习偏好</button>
-  </div>`;
+  </div>
+  ${todayModeHTML('recommendation')}`;
+}
+
+function bindHeader(app) {
+  bindTodayModeControls(app);
+  $('#recommend-profile').addEventListener('click', profileSheet);
 }
 
 function speakerIcon() {
@@ -87,8 +98,15 @@ function mountPractice(app, recommendation) {
 
   if (!item) {
     item = S.addItem({
+      kind: recommendation.kind,
       skeleton: recommendation.skeleton,
       zh: recommendation.zh,
+      lemma: recommendation.lemma,
+      sense: recommendation.sense,
+      collocations: recommendation.collocations,
+      anchorSentence: recommendation.anchorSentence,
+      relatedExpressionIds: recommendation.relatedExpressionIds,
+      domainTags: recommendation.domainTags,
       trigger: recommendation.trigger,
       why: recommendation.why,
       register: recommendation.register,
@@ -117,8 +135,12 @@ function mountPractice(app, recommendation) {
     target_zh: recommendation.drill.target_zh,
     trigger: recommendation.trigger,
   }, {
-    label: '今日推荐 · 深入练习',
+    label: recommendation.kind === 'term'
+      ? '今日专业词汇 · 场景练习'
+      : '今日推荐 · 深入练习',
     referenceAnswer: recommendation.drill.answer,
+    sessionSource: 'recommendation',
+    sessionSourceId: recommendation.id,
     onGraded: () => {
       const nextDeck = S.markRecommendationPracticed(recommendation.id);
       const progress = nextDeck
@@ -126,7 +148,7 @@ function mountPractice(app, recommendation) {
         : null;
       if (!progress?.remaining) {
         toast('今日推荐已完成');
-        go('home');
+        renderComplete(app, nextDeck || S.todayRecommendationDeck());
         return;
       }
       toast(`已完成，今天还剩 ${progress.remaining} 个`);
@@ -152,26 +174,79 @@ function mountPractice(app, recommendation) {
   });
 }
 
-function renderComplete(app, deck) {
-  const progress = recommendationProgress(deck);
+function expiredPracticeContext() {
+  const session = S.expiredRecommendationPracticeSession();
+  if (!session) return null;
+
+  const item = S.getItem(session.itemId);
+  if (!item) return null;
+  if (item.status === 'retired') S.revive(item.id);
+
+  const recommendation = S.state.dailyRecommendations?.items?.find(
+    candidate => candidate.id === session.sourceId,
+  ) || null;
+  return { item, recommendation, session };
+}
+
+function renderExpiredPractice(app, context) {
+  const {
+    item,
+    recommendation,
+    session,
+  } = context;
+  const drill = drillCard(item, {
+    brief: session.cue.brief || item.drill?.brief || '',
+    ctx: session.cue.context || S.state.profile.scenarios?.[0] || '',
+    target_zh: session.cue.targetZh || item.drill?.target_zh || '',
+    trigger: session.cue.trigger || item.trigger || '',
+  }, {
+    label: item.kind === 'term'
+      ? '跨日恢复 · 专业词汇'
+      : '跨日恢复 · 表达练习',
+    referenceAnswer: recommendation?.drill?.answer || item.seeds?.[0] || '',
+    sessionSource: 'recommendation',
+    sessionSourceId: session.sourceId,
+    onGraded: () => {
+      toast('未完成练习已结算');
+      const todayDeck = S.todayRecommendationDeck();
+      if (todayDeck) {
+        renderDeck(app, todayDeck);
+        return;
+      }
+      renderStart(app);
+    },
+  });
+
   app.innerHTML = `<div class="view stack recommendation-view">
     ${headerHTML()}
     <div class="recommendation-meta">
-      <span class="eyebrow">今日进度</span>
-      <span class="chip acc">${progress.completed} / ${progress.total}</span>
+      <span class="eyebrow">继续未完成练习</span>
+      <span class="sub">完成后进入今天</span>
     </div>
-    <section class="recommendation-complete" role="status">
+    <div id="recommend-drill">${drill.html}</div>
+  </div>`;
+  bindHeader(app);
+  drill.mount();
+}
+
+function renderComplete(app, deck) {
+  const progress = recommendationProgress(deck);
+  const dueCount = S.dueItems().length;
+  app.innerHTML = `<div class="view stack recommendation-view">
+    ${headerHTML()}
+    <section class="today-finish is-all-done" role="status">
       <div class="recommendation-complete-icon" aria-hidden="true">✓</div>
       <h2 class="zh">今日推荐已完成</h2>
-      <p class="zh">${progress.total} 个表达已加入后续复习。</p>
-      <button class="btn btn-pri" id="recommend-home" style="margin-top:16px">返回今天</button>
+      <p class="zh">${dueCount
+        ? `${progress.total} 个学习单元已练完，还有 ${dueCount} 条待复习。`
+        : '今天的复习与推荐都已完成。'}</p>
+      ${dueCount
+        ? '<div class="today-finish-actions"><button class="btn btn-pri" data-today-mode="review">去复习</button><button class="btn btn-ghost" id="recommend-stop">先到这里</button></div>'
+        : ''}
     </section>
   </div>`;
-  $('#recommend-profile').addEventListener(
-    'click',
-    profileSheet,
-  );
-  $('#recommend-home').addEventListener('click', () => go('home'));
+  bindHeader(app);
+  $('#recommend-stop')?.addEventListener('click', () => toast('今天的进度已保存'));
 }
 
 function renderDeck(app, deck) {
@@ -203,8 +278,11 @@ function renderDeck(app, deck) {
     : existing
       ? '开始练习'
       : S.weeklyTargetLeft()
-        ? '加入句库并练习'
+        ? recommendation.kind === 'term'
+          ? '加入词汇并练习'
+          : '加入表达库并练习'
         : '收录并练习 · 复习顺延';
+  const kindLabel = recommendation.kind === 'term' ? '专业词汇' : '表达';
 
   app.innerHTML = `<div class="view stack recommendation-view">
     ${headerHTML()}
@@ -214,7 +292,7 @@ function renderDeck(app, deck) {
     </div>
 
     <article class="recommendation-card" id="recommend-card" aria-live="polite" tabindex="0">
-        <div class="chips">${recommendation.tags.map(
+        <div class="chips"><span class="chip ${recommendation.kind === 'term' ? 'warm' : 'acc'}">${kindLabel}</span>${recommendation.tags.map(
           tag => `<span class="chip">${esc(tag)}</span>`,
         ).join('')}</div>
       <div class="recommendation-expression">
@@ -222,6 +300,13 @@ function renderDeck(app, deck) {
         <button class="recommendation-say" id="recommend-say-skeleton" aria-label="朗读表达" title="朗读表达">${speakerIcon()}</button>
       </div>
       <p class="zh sub recommendation-meaning">${esc(recommendation.zh)}</p>
+
+      ${recommendation.kind === 'term' && recommendation.collocations.length ? `<div class="recommendation-term-uses">
+        <span class="eyebrow">常见搭配</span>
+        <div class="chips">${recommendation.collocations.map(
+          collocation => `<span class="chip">${esc(collocation)}</span>`,
+        ).join('')}</div>
+      </div>` : ''}
 
       <div class="recommendation-example">
         <div class="row" style="justify-content:space-between">
@@ -250,10 +335,7 @@ function renderDeck(app, deck) {
     <div id="recommend-drill"></div>
   </div>`;
 
-  $('#recommend-profile').addEventListener(
-    'click',
-    profileSheet,
-  );
+  bindHeader(app);
   $('#recommend-say-skeleton').addEventListener(
     'click',
     () => SP.say(recommendation.skeleton),
@@ -322,31 +404,48 @@ function renderError(app, error) {
       <button class="btn btn-sm btn-ghost" id="recommend-retry" style="margin-top:12px">重新生成</button>
     </div>
   </div>`;
-  $('#recommend-profile').addEventListener(
-    'click',
-    profileSheet,
-  );
+  bindHeader(app);
   $('#recommend-retry').addEventListener(
     'click',
-    () => loadRecommendations(app),
+    () => loadRecommendations(app, true),
   );
 }
 
-async function loadRecommendations(app) {
+function renderStart(app) {
+  app.innerHTML = `<div class="view stack recommendation-view">
+    ${headerHTML()}
+    <section class="today-finish recommendation-start">
+      <h2 class="zh">准备今天的 5 个学习单元</h2>
+      <p class="zh">以表达为主；有合适内容时加入 1 个专业词汇，并在新情境中练习。</p>
+      <button class="btn btn-pri" id="recommend-start">开始今日推荐</button>
+    </section>
+  </div>`;
+  bindHeader(app);
+  $('#recommend-start').addEventListener('click', () => loadRecommendations(app, true));
+}
+
+async function loadRecommendations(app, shouldGenerate = false) {
+  const expiredPractice = expiredPracticeContext();
+  if (expiredPractice) {
+    renderExpiredPractice(app, expiredPractice);
+    return;
+  }
+
   const cached = S.todayRecommendationDeck();
   if (cached) {
     renderDeck(app, cached);
     return;
   }
+  if (!shouldGenerate) {
+    renderStart(app);
+    return;
+  }
 
   app.innerHTML = `<div class="view stack recommendation-view">
     ${headerHTML()}
-    ${thinking('正在生成今日推荐')}
+    ${thinking('正在准备今天的表达')}
   </div>`;
-  $('#recommend-profile').addEventListener(
-    'click',
-    profileSheet,
-  );
+  bindHeader(app);
 
   try {
     const deck = await generateDeck();
@@ -360,5 +459,6 @@ async function loadRecommendations(app) {
 
 export function viewRecommendations(app) {
   SP.stop();
+  setTodayMode('recommendation');
   loadRecommendations(app);
 }

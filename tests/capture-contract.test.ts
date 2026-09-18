@@ -7,6 +7,12 @@ function captureWith(skeleton: string, natural: string) {
     read: '用户想描述全天讲解后嗓子沙哑但很开心',
     natural,
     spoken: null,
+    feedbackKind: 'keep' as const,
+    mainIssue: null,
+    correction: null,
+    alternative: null,
+    admission: 'new' as const,
+    reuseItemId: null,
     diagnosis: { symptom: null, before: null, after: null },
     primary: {
       skeleton,
@@ -59,5 +65,84 @@ describe('capture contract', () => {
       'X alone is enough to Y',
       'I worked alone all day. It is tiring enough to make anyone hoarse.',
     )).toBe(false);
+  });
+
+  it('accepts a useful result without inventing a diagnosis or expression', () => {
+    expect(captureSchema.safeParse({
+      read: '用户的原句已经清楚准确',
+      natural: 'We can keep the current plan.',
+      spoken: null,
+      feedbackKind: 'keep',
+      mainIssue: null,
+      correction: null,
+      alternative: null,
+      admission: 'none',
+      reuseItemId: null,
+      diagnosis: null,
+      primary: null,
+      bonus: null,
+      drill: null,
+    }).success).toBe(true);
+  });
+
+  it('drops contradictory correction fields from optional feedback', () => {
+    const parsed = captureSchema.safeParse({
+      read: '原句可用',
+      natural: 'We can keep the current plan.',
+      spoken: null,
+      feedbackKind: 'optional',
+      mainIssue: '必须修改',
+      correction: null,
+      alternative: 'We can stick with the current plan.',
+      admission: 'none',
+      reuseItemId: null,
+      diagnosis: null,
+      primary: null,
+      bonus: null,
+      drill: null,
+    });
+
+    expect(parsed.success).toBe(true);
+    if (parsed.success) {
+      expect(parsed.data).toMatchObject({
+        feedbackKind: 'optional',
+        mainIssue: null,
+        correction: null,
+        alternative: 'We can stick with the current plan.',
+      });
+    }
+  });
+
+  it('accepts a professional term only with work-context usage fields', () => {
+    const value = captureWith(
+      'latency',
+      'We need to reduce latency before the regional rollout.',
+    );
+    const termPrimary = {
+      ...value.primary,
+      kind: 'term' as const,
+      skeleton: 'latency',
+      zh: '系统响应请求所需的延迟时间',
+      lemma: 'latency',
+      sense: '系统响应请求所需的延迟时间',
+      collocations: ['reduce latency', 'latency budget'],
+      anchorSentence: 'We need to reduce latency before the regional rollout.',
+      relatedExpressionIds: [],
+      domainTags: ['软件架构', '性能'],
+    };
+
+    expect(captureSchema.safeParse({
+      ...value,
+      primary: termPrimary,
+    }).success).toBe(true);
+    expect(captureSchema.safeParse({
+      ...value,
+      primary: {
+        ...termPrimary,
+        lemma: 'important',
+        skeleton: 'important',
+        anchorSentence: 'This is important.',
+      },
+    }).success).toBe(false);
   });
 });

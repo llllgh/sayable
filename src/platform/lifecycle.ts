@@ -12,6 +12,7 @@ import { consumeSharedText } from './share-inbox';
 
 interface PlatformCallbacks {
   go: (route: string, argument?: unknown) => void;
+  openCapture: () => void;
   openDrill: (itemId: string, answer?: string) => void;
   closeOverlay: () => boolean;
 }
@@ -67,7 +68,7 @@ function handleDeepLink(urlValue: string, callbacks: PlatformCallbacks): void {
   try {
     const url = new URL(urlValue);
     if (url.hostname === 'capture') {
-      callbacks.go('capture');
+      callbacks.openCapture();
       return;
     }
   } catch {
@@ -95,7 +96,11 @@ export async function initializePlatform(callbacks: PlatformCallbacks): Promise<
     callbacks.openDrill(itemId, answer);
   });
 
-  await CapacitorApp.addListener('backButton', () => {
+  await CapacitorApp.addListener('backButton', async () => {
+    if (document.body.classList.contains('keyboard-open')) {
+      await Keyboard.hide().catch(() => undefined);
+      return;
+    }
     if (callbacks.closeOverlay()) return;
     const route = location.hash.slice(1);
     if (route && route !== 'home') {
@@ -116,14 +121,12 @@ export async function initializePlatform(callbacks: PlatformCallbacks): Promise<
       await Store.flush();
       return;
     }
-    const shared = await ingestShares();
-    const replies = await ingestReplies(callbacks.openDrill);
+    await ingestShares();
+    await ingestReplies(callbacks.openDrill);
     await Promise.allSettled([processOutbox(), rescheduleNotifications()]);
-    if (shared && !replies) callbacks.go('home');
   });
 
-  const shared = await ingestShares();
-  const replies = await ingestReplies(callbacks.openDrill);
-  if (shared && !replies) callbacks.go('home');
+  await ingestShares();
+  await ingestReplies(callbacks.openDrill);
   await Promise.allSettled([processOutbox(), rescheduleNotifications()]);
 }

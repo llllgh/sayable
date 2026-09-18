@@ -10,8 +10,12 @@ import {
   normalizeTextProviderId,
 } from '../llm/profiles';
 import { normalizeDailyRecommendationDeck } from '../core/recommendations';
+import { normalizePracticeSession } from '../core/practice-session';
+import { normalizeRecordStatus } from '../core/library';
+import { normalizeToolTasks } from '../core/tool-tasks';
+import { normalizeLearningItem } from '../core/learning-items';
 
-export const CURRENT_STATE_FORMAT_VERSION = 9;
+export const CURRENT_STATE_FORMAT_VERSION = 12;
 
 type JsonRecord = Record<string, unknown>;
 
@@ -93,9 +97,18 @@ function migrateItemTrigger(item: unknown): unknown {
   const existing = String(item.trigger ?? '').trim();
   const drill = isRecord(item.drill) ? item.drill : null;
   const trigger = existing || String(drill?.brief ?? '').trim();
-  return {
+  return normalizeLearningItem({
     ...item,
     trigger,
+  });
+}
+
+function migrateInboxRecord(value: unknown): unknown {
+  if (!isRecord(value)) return value;
+  return {
+    ...value,
+    status: normalizeRecordStatus(value.status),
+    failReason: String(value.failReason ?? ''),
   };
 }
 
@@ -137,6 +150,16 @@ function migrateSettings(value: unknown): JsonRecord {
   };
 }
 
+function migrateDrafts(value: unknown, legacyDraft: unknown): JsonRecord {
+  const drafts = isRecord(value) ? value : {};
+  return {
+    quickCapture: String(drafts.quickCapture ?? legacyDraft ?? ''),
+    expression: String(drafts.expression ?? ''),
+    compression: String(drafts.compression ?? ''),
+    preflight: String(drafts.preflight ?? ''),
+  };
+}
+
 export function migratePersistedState(input: unknown): unknown {
   if (!isRecord(input)) return input;
 
@@ -155,9 +178,9 @@ export function migratePersistedState(input: unknown): unknown {
     })
     .map(migrateItemTrigger);
 
-  const inbox = (Array.isArray(input.inbox) ? input.inbox : []).filter(
-    (entry) => !isRecord(entry) || entry.source !== 'demo',
-  );
+  const inbox = (Array.isArray(input.inbox) ? input.inbox : [])
+    .filter((entry) => !isRecord(entry) || entry.source !== 'demo')
+    .map(migrateInboxRecord);
   const compressions = (Array.isArray(input.compressions) ? input.compressions : []).filter(
     (entry) => compressionSignature(entry) !== LEGACY_DEMO_COMPRESSION_SIGNATURE,
   );
@@ -178,6 +201,14 @@ export function migratePersistedState(input: unknown): unknown {
     items,
     inbox,
     compressions,
+    drafts: migrateDrafts(input.drafts, input.draft),
+    toolTasks: normalizeToolTasks(input.toolTasks),
+    practiceSessions: (Array.isArray(input.practiceSessions)
+      ? input.practiceSessions
+      : [])
+      .map(normalizePracticeSession)
+      .filter(Boolean)
+      .slice(-200),
     roleplaySessions: Array.isArray(input.roleplaySessions)
       ? input.roleplaySessions
       : [],
@@ -188,5 +219,6 @@ export function migratePersistedState(input: unknown): unknown {
     settings: migrateSettings(input.settings),
   };
   delete migrated.seeded;
+  delete migrated.draft;
   return migrated;
 }

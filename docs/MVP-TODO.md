@@ -1,5 +1,7 @@
 # MVP TODO —— 从原型到「可独立安装使用」的移动端应用
 
+> **历史文档**：记录早期 Android MVP 的技术拆解，清单勾选状态未随实现持续更新，不再用于判断当前进度或安排下一项工作。当前产品状态和实施顺序以 [`PRD.md`](PRD.md) 为准；工程现状以代码和 [`ENGINEERING.md`](ENGINEERING.md) 为准。
+>
 > **Android MVP 状态（2026-08-31）**：已完成可签名安装版本，覆盖 Capacitor、SQLite、Keystore、每日 7 份备份、三种 LLM 协议、离线 outbox、本地通知与快捷回复、降频、Share Intent、桌面快捷入口、返回键、键盘处理和原生 TTS。发布 APK 位于 `android/app/build/outputs/apk/release/app-release.apk`。
 >
 > **尚需真实使用验证**：连接真机完成权限/通知/分享验收；提供 20~30 条个人真实语料后才能完成 T6 的质量基线。iOS 相关项不在本轮 Android MVP 范围。

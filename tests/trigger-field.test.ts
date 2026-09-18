@@ -11,6 +11,12 @@ describe('communicative intent trigger', () => {
       read: '用户希望提出分阶段上线',
       natural: 'A good starting point would be to pilot this before scaling up.',
       spoken: null,
+      feedbackKind: 'keep',
+      mainIssue: null,
+      correction: null,
+      alternative: null,
+      admission: 'new',
+      reuseItemId: null,
       diagnosis: { symptom: null, before: null, after: null },
       primary: {
         skeleton: 'A good starting point would be to X before Y',

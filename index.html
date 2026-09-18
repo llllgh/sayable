@@ -35,11 +35,9 @@
   <main id="app" role="main"></main>
 
   <nav id="tabbar" aria-label="主要导航">
-    <button data-route="home" class="tab"><svg viewBox="0 0 24 24" class="ic"><path d="M4 11.5 12 4.5l8 7"/><path d="M6 10.6V20h12v-9.4"/></svg><em>今天</em></button>
-    <button data-route="capture" class="tab"><svg viewBox="0 0 24 24" class="ic"><path d="M12 5v14M5 12h14"/></svg><em>新表达</em></button>
-    <button data-route="compress" class="tab"><svg viewBox="0 0 24 24" class="ic"><path d="M4 8h16M7 12h10M10 16h4"/></svg><em>精简</em></button>
-    <button data-route="preflight" class="tab"><svg viewBox="0 0 24 24" class="ic"><path d="M5 12.5 19 5l-3.2 14-4-4.6z"/><path d="M11.8 14.4 9.4 19l-1.1-4.2"/></svg><em>会前准备</em></button>
-    <button data-route="library" class="tab"><svg viewBox="0 0 24 24" class="ic"><path d="M5 5.5h6v13H5zM13 5.5h6v13h-6z"/></svg><em>句库</em></button>
+    <button data-route="home" class="tab tab-destination"><svg viewBox="0 0 24 24" class="ic"><path d="M4 11.5 12 4.5l8 7"/><path d="M6 10.6V20h12v-9.4"/></svg><em>今天</em></button>
+    <button id="global-capture" class="tab tab-capture" type="button"><svg viewBox="0 0 24 24" class="ic"><path d="M12 5v14M5 12h14"/></svg><em>记一句</em><span class="capture-draft-dot" hidden aria-label="有未保存草稿"></span></button>
+    <button data-route="library" class="tab tab-destination"><svg viewBox="0 0 24 24" class="ic"><path d="M5 5.5h6v13H5zM13 5.5h6v13h-6z"/></svg><em>表达库</em></button>
   </nav>
 
   <div id="sheet" class="sheet" aria-hidden="true" inert>

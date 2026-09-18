@@ -10,17 +10,26 @@ export const $$ = (sel, root = document) => [...root.querySelectorAll(sel)];
 
 let toastTimer;
 let sheetReturnFocus = null;
+let sheetCloseCallback = null;
 export function toast(msg) {
   const t = $('#toast'); if (!t) return;
   t.textContent = msg; t.classList.add('on');
   clearTimeout(toastTimer); toastTimer = setTimeout(() => t.classList.remove('on'), 2300);
 }
 
-export function openSheet(title, bodyHTML, onMount, { dismissible = true } = {}) {
+export function openSheet(title, bodyHTML, onMount, {
+  dismissible = true,
+  onClose = null,
+} = {}) {
   const s = $('#sheet');
+  if (s.getAttribute('aria-hidden') === 'false') {
+    if (s.dataset.dismissible === 'false') return false;
+    closeSheet();
+  }
   sheetReturnFocus = document.activeElement instanceof HTMLElement
     ? document.activeElement
     : null;
+  sheetCloseCallback = typeof onClose === 'function' ? onClose : null;
   $('#sheet-title').textContent = title;
   $('#sheet-body').innerHTML = bodyHTML;
   s.dataset.dismissible = String(dismissible);
@@ -29,6 +38,7 @@ export function openSheet(title, bodyHTML, onMount, { dismissible = true } = {})
   s.setAttribute('aria-hidden', 'false');
   document.body.style.overflow = 'hidden';
   onMount?.($('#sheet-body'));
+  return true;
 }
 export function closeSheet(force = false) {
   const sheet = $('#sheet');
@@ -38,6 +48,9 @@ export function closeSheet(force = false) {
   sheet.setAttribute('inert', '');
   sheet.setAttribute('aria-hidden', 'true');
   document.body.style.overflow = '';
+  const onClose = sheetCloseCallback;
+  sheetCloseCallback = null;
+  onClose?.();
   sheetReturnFocus?.focus({ preventScroll: true });
   sheetReturnFocus = null;
   return wasOpen;

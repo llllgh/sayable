@@ -29,6 +29,32 @@ function candidates(count = 5) {
   }));
 }
 
+function termCandidate(overrides = {}) {
+  return {
+    kind: 'term',
+    skeleton: 'latency',
+    zh: '系统响应请求所需的延迟时间',
+    lemma: 'latency',
+    sense: '系统响应请求所需的延迟时间',
+    collocations: ['reduce latency', 'latency budget'],
+    anchorSentence: 'We need to reduce latency before the regional rollout.',
+    relatedExpressionIds: ['expression-1'],
+    domainTags: ['软件架构', '性能'],
+    trigger: '当讨论系统响应速度时，准确说明延迟及其约束',
+    why: '适合性能评审和架构讨论',
+    example: 'We need to reduce latency before the regional rollout.',
+    example_zh: '我们需要在区域上线前降低延迟。',
+    drill: {
+      brief: '在接口评审中说明缓存可以降低响应延迟',
+      target_zh: '增加本地缓存可以降低关键接口的延迟。',
+      answer: 'Adding a local cache can reduce latency on the critical endpoint.',
+    },
+    register: 'meeting',
+    tags: ['性能'],
+    ...overrides,
+  };
+}
+
 describe('daily recommendations', () => {
   it('distinguishes a transferred scenario from a direct answer replay', () => {
     const example = '智能体成本与其说取决于显卡，不如说取决于上下文管理。';
@@ -71,7 +97,59 @@ describe('daily recommendations', () => {
     expect(() => createDailyRecommendationDeck({
       items: duplicated,
       idFactory: () => crypto.randomUUID(),
-    })).toThrow('至少需要 5 个不同表达');
+    })).toThrow('至少需要 5 个不同学习单元');
+  });
+
+  it('keeps a professional term alongside four expressions', () => {
+    const deck = createDailyRecommendationDeck({
+      items: [...candidates(4), termCandidate()],
+      idFactory: () => crypto.randomUUID(),
+      random: () => 0.5,
+    });
+
+    expect(deck.items.filter(item => item.kind === 'term')).toHaveLength(1);
+    expect(deck.items.find(item => item.kind === 'term')).toMatchObject({
+      lemma: 'latency',
+      collocations: ['reduce latency', 'latency budget'],
+      domainTags: ['软件架构', '性能'],
+    });
+  });
+
+  it('does not admit generic or multiple term cards', () => {
+    const generic = termCandidate({
+      skeleton: 'important',
+      lemma: 'important',
+      anchorSentence: 'This is important for the project.',
+      example: 'This is important for the project.',
+      drill: {
+        brief: '说明一项工作很重要',
+        target_zh: '这项检查对上线很重要。',
+        answer: 'This check is important for the launch.',
+      },
+    });
+    expect(recommendationSchema.safeParse({
+      items: [...candidates(4), generic],
+    }).success).toBe(false);
+
+    expect(recommendationSchema.safeParse({
+      items: [
+        ...candidates(4),
+        termCandidate(),
+        termCandidate({
+          skeleton: 'throughput',
+          lemma: 'throughput',
+          sense: '系统在单位时间内处理的任务量',
+          collocations: ['increase throughput', 'peak throughput'],
+          anchorSentence: 'The new queue increased throughput during peak hours.',
+          example: 'The new queue increased throughput during peak hours.',
+          drill: {
+            brief: '说明批处理提高了数据吞吐量',
+            target_zh: '批处理提高了夜间任务的吞吐量。',
+            answer: 'Batching increased throughput for the overnight jobs.',
+          },
+        }),
+      ],
+    }).success).toBe(false);
   });
 
   it('normalizes imported decks and clamps their current card', () => {
@@ -180,13 +258,15 @@ describe('daily recommendations', () => {
     const store = readFileSync('js/store.js', 'utf8');
 
     expect(main).toContain('recommend: viewRecommendations');
-    expect(home).toContain('data-nav="recommend"');
+    expect(home).toContain('data-today-mode="recommendation"');
     expect(view).toContain("card.addEventListener('pointerup'");
     expect(view).toContain("srcKind: 'recommendation'");
+    expect(view).toContain("recommendation.kind === 'term'");
+    expect(view).toContain('collocations: recommendation.collocations');
     expect(view).toContain('drillCard(item');
     expect(view).toContain('markRecommendationPracticed');
     expect(view).toContain('今日推荐已完成');
-    expect(view).toContain("go('home')");
+    expect(view).toContain("setTodayMode('recommendation')");
     expect(view).toContain('收录并练习 · 复习顺延');
     expect(view).not.toContain('openBudgetSwap');
     expect(view).not.toContain('S.retire');
@@ -195,6 +275,20 @@ describe('daily recommendations', () => {
     expect(view).toContain('target_zh: recommendation.drill.target_zh');
     expect(view).toContain('brief: recommendation.drill.brief');
     expect(view).toContain('referenceAnswer: recommendation.drill.answer');
+    expect(view).toContain('S.expiredRecommendationPracticeSession()');
+    expect(view).toContain('继续未完成练习');
+    expect(view).toContain(
+      "referenceAnswer: recommendation?.drill?.answer || item.seeds?.[0] || ''",
+    );
+    const expiredPractice = view.slice(
+      view.indexOf('function renderExpiredPractice'),
+      view.indexOf('function renderComplete'),
+    );
+    expect(expiredPractice).toContain('S.todayRecommendationDeck()');
+    expect(expiredPractice).toContain('renderStart(app)');
+    expect(expiredPractice).not.toContain('markRecommendationPracticed');
+    expect(view.indexOf('const expiredPractice = expiredPracticeContext()'))
+      .toBeLessThan(view.indexOf('const cached = S.todayRecommendationDeck()'));
     expect(view).not.toContain('target_zh: recommendation.zh');
     expect(view).toContain('trigger: recommendation.trigger');
     expect(home).not.toContain('cap-swap');

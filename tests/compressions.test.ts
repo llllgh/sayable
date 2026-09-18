@@ -4,6 +4,7 @@ import {
   createCompressionRecord,
   normalizeCompressionRecord,
 } from '../src/core/compressions';
+import { restatementSchema } from '../src/llm/schemas';
 
 describe('compression history records', () => {
   it('preserves the complete result for later reuse', () => {
@@ -35,6 +36,7 @@ describe('compression history records', () => {
       zh: '从 X 转向 Y',
       trigger: '当讨论重点发生变化时，明确说明转移方向',
     });
+    expect(record.practiceAttempts).toEqual([]);
   });
 
   it('keeps legacy skeleton-only history usable', () => {
@@ -72,6 +74,39 @@ describe('compression history records', () => {
 
     expect(compressionView).toContain('data-compression=');
     expect(compressionView).toContain('data-reuse="long"');
+    expect(compressionView).toContain('id="cp-practice"');
+    expect(compressionView).toContain('L.judgeRestatement');
+    expect(compressionView).toContain('S.recordCompressionPracticeAttempt');
     expect(compressionView).not.toMatch(/onGraded:\s*\(\)\s*=>\s*go\('home'\)/);
+  });
+
+  it('validates keep, correction, and optional restatement feedback', () => {
+    const base = {
+      ok: true,
+      meaning_intact: true,
+      verdict: '已经说清楚了。',
+      note: '',
+    };
+    expect(restatementSchema.safeParse({
+      ...base,
+      feedback_kind: 'keep',
+      main_issue: null,
+      fix: null,
+      tighter: null,
+    }).success).toBe(true);
+    expect(restatementSchema.safeParse({
+      ...base,
+      feedback_kind: 'correct',
+      main_issue: '遗漏了条件',
+      fix: null,
+      tighter: null,
+    }).success).toBe(false);
+    expect(restatementSchema.safeParse({
+      ...base,
+      feedback_kind: 'optional',
+      main_issue: null,
+      fix: null,
+      tighter: 'We can start small and scale later.',
+    }).success).toBe(true);
   });
 });

@@ -1,8 +1,21 @@
 /* main.js — 路由与启动 */
 import * as S from './store.js';
 import { $, $$, closeSheet, toast } from './ui.js';
-import { viewHome, viewCapture, viewDrillItem, bindRouter } from './views.js';
-import { viewCompress, viewPreflight, viewLibrary, settingsSheet, onboardingSheet } from './views2.js';
+import {
+  bindRouter,
+  openQuickCapture,
+  viewCapture,
+  viewDrillItem,
+  viewHome,
+} from './views.js';
+import {
+  onboardingSheet,
+  saveLibraryPosition,
+  settingsSheet,
+  viewCompress,
+  viewLibrary,
+  viewPreflight,
+} from './views2.js';
 import { viewRecommendations } from './recommendations.js';
 import { viewRoleplay } from './roleplay.js';
 import { initNetwork } from '../src/platform/network.ts';
@@ -31,6 +44,7 @@ const ROUTES = {
 
 function go(route, arg) {
   closeSheet();
+  saveLibraryPosition();
   if (route === 'roleplay' && arg) {
     openRoleplay(arg);
     return;
@@ -38,9 +52,10 @@ function go(route, arg) {
   const r = ROUTES[route] ? route : 'home';
   app.dataset.route = r;
   if (location.hash.slice(1) !== r) history.replaceState(null, '', '#' + r);
-  const activeTab = r === 'recommend' ? 'home' : r;
+  const activeTab = ['home', 'recommend'].includes(r) ? 'home' : 'library';
   $$('#tabbar .tab').forEach(t => {
-    const active = t.dataset.route === activeTab;
+    const active = t.classList.contains('tab-destination')
+      && t.dataset.route === activeTab;
     t.classList.toggle('on', active);
     if (active) t.setAttribute('aria-current', 'page');
     else t.removeAttribute('aria-current');
@@ -48,6 +63,7 @@ function go(route, arg) {
   window.scrollTo({ top: 0, behavior: 'instant' });
   ROUTES[r](app, arg);
   refreshChip();
+  refreshCaptureDraft();
 }
 bindRouter(go);
 
@@ -56,8 +72,10 @@ function openDrill(itemId, answer = '') {
   app.dataset.route = 'drill';
   history.replaceState(null, '', '#drill/' + encodeURIComponent(itemId));
   $$('#tabbar .tab').forEach(t => {
-    t.classList.remove('on');
-    t.removeAttribute('aria-current');
+    const active = t.dataset.route === 'home';
+    t.classList.toggle('on', active);
+    if (active) t.setAttribute('aria-current', 'page');
+    else t.removeAttribute('aria-current');
   });
   window.scrollTo({ top: 0, behavior: 'instant' });
   viewDrillItem(app, itemId, answer);
@@ -68,8 +86,10 @@ function openRoleplay(itemId) {
   app.dataset.route = 'roleplay';
   history.replaceState(null, '', '#roleplay/' + encodeURIComponent(itemId));
   $$('#tabbar .tab').forEach(t => {
-    t.classList.remove('on');
-    t.removeAttribute('aria-current');
+    const active = t.dataset.route === 'library';
+    t.classList.toggle('on', active);
+    if (active) t.setAttribute('aria-current', 'page');
+    else t.removeAttribute('aria-current');
   });
   window.scrollTo({ top: 0, behavior: 'instant' });
   viewRoleplay(app, itemId);
@@ -81,7 +101,15 @@ function refreshChip() {
   c.hidden = live;
 }
 
-$$('#tabbar .tab').forEach(t => t.addEventListener('click', () => go(t.dataset.route)));
+function refreshCaptureDraft() {
+  const dot = $('.capture-draft-dot');
+  if (dot) dot.hidden = !S.getDraft('quickCapture').trim();
+}
+
+$$('#tabbar .tab-destination').forEach(t => t.addEventListener('click', () => go(t.dataset.route)));
+$('#global-capture').addEventListener('click', () => {
+  openQuickCapture(refreshCaptureDraft);
+});
 $('#btn-settings').addEventListener('click', () => settingsSheet(refreshChip));
 $('#mode-chip').addEventListener('click', () => settingsSheet(refreshChip));
 $$('#sheet [data-close]').forEach(el => el.addEventListener('click', closeSheet));
@@ -112,12 +140,14 @@ if (!S.state.settings.onboarded) {
 
 await initNetwork(() => processOutbox().then(count => {
   if (count) {
-    toast(`已自动分析 ${count} 条闪存`);
+    toast(`已整理 ${count} 条记录，待查看`);
     if (location.hash === '#home') viewHome(app);
+    if (location.hash === '#library') viewLibrary(app);
   }
 }));
 await initializePlatform({
   go,
+  openCapture: () => openQuickCapture(refreshCaptureDraft),
   openDrill,
   closeOverlay: closeSheet,
 });

@@ -32,6 +32,19 @@ export interface RoleplayResult {
   fix: string | null;
   tighter: string | null;
   note: string;
+  retryTurn?: 1 | 2;
+}
+
+export interface RoleplayRetryAttempt {
+  id: string;
+  turn: 1 | 2;
+  answer: string;
+  inputMode: 'text' | 'voice' | 'unknown';
+  rawTranscript: string;
+  promptUsed: boolean;
+  ok: boolean;
+  judgement: Record<string, unknown> | null;
+  at: number;
 }
 
 export interface RoleplaySession {
@@ -43,6 +56,10 @@ export interface RoleplaySession {
   role: string;
   turns: RoleplayTurn[];
   result: RoleplayResult | null;
+  retryActive?: boolean;
+  retryDraft?: string;
+  retryPromptUsed?: boolean;
+  retryAttempts?: RoleplayRetryAttempt[];
 }
 
 export interface RoleplayEligibleItem {
@@ -163,6 +180,10 @@ export function createRoleplaySessionRecord(input: {
     role,
     turns: [{ speaker: 'ai', text: opening, at: timestamp }],
     result: null,
+    retryActive: false,
+    retryDraft: '',
+    retryPromptUsed: false,
+    retryAttempts: [],
   };
 }
 
@@ -206,6 +227,7 @@ export function normalizeRoleplayResult(value: unknown): RoleplayResult {
     fix: text(source.fix) || null,
     tighter: text(source.tighter) || null,
     note: text(source.note),
+    retryTurn: Number(source.retryTurn ?? source.retry_turn) === 1 ? 1 : 2,
   };
 }
 
@@ -239,6 +261,30 @@ export function normalizeRoleplaySession(value: unknown): RoleplaySession | null
   const result = isRecord(value.result)
     ? normalizeRoleplayResult(value.result)
     : null;
+  const retryAttempts = (Array.isArray(value.retryAttempts)
+    ? value.retryAttempts
+    : [])
+    .map((attempt): RoleplayRetryAttempt | null => {
+      if (!isRecord(attempt)) return null;
+      const id = text(attempt.id);
+      const answer = text(attempt.answer);
+      if (!id || !answer) return null;
+      return {
+        id,
+        turn: Number(attempt.turn) === 1 ? 1 : 2,
+        answer,
+        inputMode: attempt.inputMode === 'text' || attempt.inputMode === 'voice'
+          ? attempt.inputMode
+          : 'unknown',
+        rawTranscript: text(attempt.rawTranscript),
+        promptUsed: Boolean(attempt.promptUsed),
+        ok: Boolean(attempt.ok),
+        judgement: isRecord(attempt.judgement) ? attempt.judgement : null,
+        at: Number(attempt.at) || 0,
+      };
+    })
+    .filter((attempt): attempt is RoleplayRetryAttempt => Boolean(attempt))
+    .slice(-2);
   return {
     id,
     itemId,
@@ -248,6 +294,10 @@ export function normalizeRoleplaySession(value: unknown): RoleplaySession | null
     role,
     turns: turns as RoleplayTurn[],
     result,
+    retryActive: Boolean(result && value.retryActive && retryAttempts.length < 2),
+    retryDraft: text(value.retryDraft),
+    retryPromptUsed: Boolean(value.retryPromptUsed),
+    retryAttempts,
   };
 }
 

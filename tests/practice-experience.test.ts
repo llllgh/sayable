@@ -48,4 +48,29 @@ describe('practice experience', () => {
     expect(source).toContain("'需要纠正（不影响本次通过）'");
     expect(source).toContain("'可选精简'");
   });
+
+  it('persists practice attempts and guards detached async results', () => {
+    const source = readFileSync('js/views.js', 'utf8');
+    const drill = source.slice(
+      source.indexOf('export function drillCard'),
+      source.indexOf('export function viewHome'),
+    );
+
+    expect(drill).toContain('S.ensurePracticeSession');
+    expect(drill).toContain('S.updatePracticeDraft');
+    expect(drill).toContain('S.beginPracticeAttempt');
+    expect(drill).toContain('S.settlePracticeAttempt');
+    expect(drill).toContain('!root.isConnected');
+    expect(drill).not.toContain('S.grade(');
+  });
+
+  it('uses separate drafts for capture and tools', () => {
+    const primaryViews = readFileSync('js/views.js', 'utf8');
+    const toolViews = readFileSync('js/views2.js', 'utf8');
+
+    expect(primaryViews).toContain("S.getDraft('quickCapture')");
+    expect(primaryViews).toContain("S.getDraft('expression')");
+    expect(toolViews).toContain("S.getDraft('compression')");
+    expect(toolViews).toContain("S.getDraft('preflight')");
+  });
 });

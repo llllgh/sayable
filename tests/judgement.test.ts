@@ -76,6 +76,8 @@ describe('judgement', () => {
       used_target: true,
       meaning_intact: true,
       verdict: '通过。',
+      feedback_kind: 'keep' as const,
+      main_issue: null,
       tighter: null,
       note: '',
     };
@@ -83,6 +85,8 @@ describe('judgement', () => {
     expect(judgeSchema.safeParse({
       ...base,
       issue_level: 'minor',
+      feedback_kind: 'correct',
+      main_issue: '主谓不一致',
       fix: null,
     }).success).toBe(false);
     expect(judgeSchema.safeParse({
@@ -105,6 +109,7 @@ describe('judgement', () => {
     );
 
     expect(feedback.kind).toBe('passed_with_correction');
+    expect(feedback.languageKind).toBe('correct');
     expect(feedback.correction).not.toBeNull();
     expect(feedback.tighter).toBeNull();
   });
@@ -121,6 +126,7 @@ describe('judgement', () => {
       },
     )).toEqual({
       kind: 'passed',
+      languageKind: 'keep',
       verdict: '通过，骨架和表达都对，没有需要改的地方。',
       note: '',
       correction: null,
@@ -144,10 +150,36 @@ describe('judgement', () => {
     expect(feedback.correction).toBeNull();
     expect(feedback.tighter?.changes.length).toBeGreaterThan(0);
     expect(feedback.kind).toBe('passed');
+    expect(feedback.languageKind).toBe('optional');
     expect(feedback.verdict).toBe(
-      '通过，骨架和表达都对。下面是一种更紧凑的说法。',
+      '通过，原句没有错；下面是一种可选的精简说法。',
     );
     expect(feedback.note).toBe('');
+  });
+
+  it('keeps language feedback separate when the target skeleton is missing', () => {
+    const parsed = judgeSchema.safeParse({
+      ok: false,
+      used_target: false,
+      meaning_intact: true,
+      issue_level: 'blocking',
+      feedback_kind: 'keep',
+      main_issue: null,
+      verdict: '表达清楚，但没有使用目标骨架。',
+      fix: null,
+      tighter: null,
+      note: '',
+    });
+
+    expect(parsed.success).toBe(true);
+    expect(buildJudgementFeedback(
+      'We should confirm the date first.',
+      parsed.success ? parsed.data : {},
+    )).toMatchObject({
+      kind: 'failed',
+      languageKind: 'keep',
+      correction: null,
+    });
   });
 
   it('labels the read-only review ladder in result cards', () => {

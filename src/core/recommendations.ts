@@ -1,5 +1,13 @@
+import {
+  isProfessionalTermCandidate,
+  learningItemKey,
+  normalizeLearningItemKind,
+  type LearningItemKind,
+} from './learning-items';
+
 export const MIN_DAILY_RECOMMENDATIONS = 5;
 export const MAX_DAILY_RECOMMENDATIONS = 6;
+export const TARGET_DAILY_TERMS = 1;
 
 export type RecommendationRegister = 'meeting' | 'email' | 'casual';
 
@@ -11,8 +19,15 @@ export interface RecommendationDrill {
 
 export interface RecommendationCard {
   id: string;
+  kind: LearningItemKind;
   skeleton: string;
   zh: string;
+  lemma: string;
+  sense: string;
+  collocations: string[];
+  anchorSentence: string;
+  relatedExpressionIds: string[];
+  domainTags: string[];
   trigger: string;
   why: string;
   example: string;
@@ -109,8 +124,13 @@ function normalizeCard(
   idFactory?: () => string,
 ): RecommendationCard | null {
   if (!isRecord(value)) return null;
-  const skeleton = text(value.skeleton);
-  const zh = text(value.zh);
+  const kind = normalizeLearningItemKind(value.kind);
+  const skeleton = kind === 'term'
+    ? text(value.lemma) || text(value.skeleton)
+    : text(value.skeleton);
+  const zh = kind === 'term'
+    ? text(value.sense) || text(value.zh)
+    : text(value.zh);
   const example = text(value.example);
   const exampleZh = text(value.example_zh);
   const drill = isRecord(value.drill) ? value.drill : null;
@@ -126,6 +146,7 @@ function normalizeCard(
     || !drillTargetZh
     || !drillAnswer
     || !drillDiffersFromExample(exampleZh, drillTargetZh)
+    || (kind === 'term' && !isProfessionalTermCandidate(value))
   ) return null;
 
   const id = text(value.id) || idFactory?.() || '';
@@ -133,8 +154,23 @@ function normalizeCard(
 
   return {
     id,
+    kind,
     skeleton,
     zh,
+    lemma: kind === 'term' ? text(value.lemma) || skeleton : '',
+    sense: kind === 'term' ? text(value.sense) || zh : '',
+    collocations: kind === 'term' && Array.isArray(value.collocations)
+      ? value.collocations.map(text).filter(Boolean).slice(0, 6)
+      : [],
+    anchorSentence: kind === 'term'
+      ? text(value.anchorSentence) || example
+      : '',
+    relatedExpressionIds: kind === 'term' && Array.isArray(value.relatedExpressionIds)
+      ? value.relatedExpressionIds.map(text).filter(Boolean).slice(0, 12)
+      : [],
+    domainTags: kind === 'term' && Array.isArray(value.domainTags)
+      ? value.domainTags.map(text).filter(Boolean).slice(0, 6)
+      : [],
     trigger: text(value.trigger) || text(value.why),
     why: text(value.why),
     example,
@@ -161,7 +197,7 @@ function uniqueCards(
   const cards: RecommendationCard[] = [];
   for (const value of values) {
     const card = normalizeCard(value, idFactory);
-    const key = recommendationKey(card?.skeleton);
+    const key = card ? learningItemKey(card) : '';
     if (!card || !key || seen.has(key)) continue;
     seen.add(key);
     cards.push(card);
@@ -195,7 +231,11 @@ export function createDailyRecommendationDeck(input: {
 }): DailyRecommendationDeck {
   const cards = uniqueCards(input.items, input.idFactory);
   if (cards.length < MIN_DAILY_RECOMMENDATIONS) {
-    throw new Error(`今日推荐至少需要 ${MIN_DAILY_RECOMMENDATIONS} 个不同表达`);
+    throw new Error(`今日推荐至少需要 ${MIN_DAILY_RECOMMENDATIONS} 个不同学习单元`);
+  }
+  const termCount = cards.filter(card => card.kind === 'term').length;
+  if (termCount > TARGET_DAILY_TERMS || cards.length - termCount < 4) {
+    throw new Error('今日推荐需包含至少 4 个表达，专业词汇最多 1 个');
   }
 
   return {

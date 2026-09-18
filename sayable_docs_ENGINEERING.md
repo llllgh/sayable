@@ -1,5 +1,7 @@
 # 工程实现文档（ENGINEERING）
 
+> **历史根目录副本**：不再维护。当前产品路线见 [`docs/PRD.md`](docs/PRD.md)，工程参考见 [`docs/ENGINEERING.md`](docs/ENGINEERING.md)。
+>
 > 面向要把 `sayable` 原型做成可安装移动端应用的开发者。
 > 配套：`PRD.md`（需求与分期）、`MVP-TODO.md`（近 4 周清单）
 

@@ -104,10 +104,10 @@ JAVA_HOME=/opt/homebrew/opt/openjdk@21/libexec/openjdk.jdk/Contents/Home \
   ./gradlew testDebugUnitTest lintDebug
 ```
 
-工程与产品契约见：
+工程与产品文档：
 
-- [`sayable_docs_MVP-TODO.md`](sayable_docs_MVP-TODO.md)
-- [`sayable_docs_PRD.md`](sayable_docs_PRD.md)
-- [`sayable_docs_ENGINEERING.md`](sayable_docs_ENGINEERING.md)
+- [`docs/PRD.md`](docs/PRD.md)：产品需求、完整功能路线、完成状态与当前实施起点
+- [`docs/ENGINEERING.md`](docs/ENGINEERING.md)：工程架构、数据和平台约束
+- [`docs/MVP-TODO.md`](docs/MVP-TODO.md)：早期 Android MVP 实施记录，仅作历史参考
 
 提示词质量基线需要把 [`eval/cases.jsonl`](eval/cases.jsonl) 中的占位样例替换为 20 至 30 条真实语料后再建立，避免用合成样例制造虚假的质量结论。

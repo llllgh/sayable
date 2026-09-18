@@ -5,6 +5,8 @@ export interface JudgementResult {
   used_target: boolean;
   meaning_intact: boolean;
   issue_level: JudgementIssueLevel;
+  feedback_kind?: 'keep' | 'correct' | 'optional';
+  main_issue?: string | null;
   verdict: string;
   fix?: string | null;
   tighter?: string | null;
@@ -33,6 +35,7 @@ export interface JudgementDiff {
 
 export interface JudgementFeedback {
   kind: 'passed' | 'passed_with_correction' | 'failed';
+  languageKind: 'keep' | 'correct' | 'optional';
   verdict: string;
   note: string;
   correction: JudgementDiff | null;
@@ -279,11 +282,17 @@ export function buildJudgementFeedback(
   const tighter = correction
     ? null
     : compareJudgementText(answer, result.tighter);
+  const languageKind = correction
+    ? 'correct'
+    : tighter
+      ? 'optional'
+      : 'keep';
 
   if (result.ok) {
     if (correction) {
       return {
         kind: 'passed_with_correction',
+        languageKind,
         verdict: '通过，骨架和语义都对；但下面的问题仍需纠正。',
         note: result.note || '',
         correction,
@@ -293,7 +302,8 @@ export function buildJudgementFeedback(
     if (tighter) {
       return {
         kind: 'passed',
-        verdict: '通过，骨架和表达都对。下面是一种更紧凑的说法。',
+        languageKind,
+        verdict: '通过，原句没有错；下面是一种可选的精简说法。',
         note: '',
         correction: null,
         tighter,
@@ -301,6 +311,7 @@ export function buildJudgementFeedback(
     }
     return {
       kind: 'passed',
+      languageKind,
       verdict: '通过，骨架和表达都对，没有需要改的地方。',
       note: '',
       correction: null,
@@ -310,7 +321,10 @@ export function buildJudgementFeedback(
 
   return {
     kind: 'failed',
-    verdict: '还没通过，目标结构或核心语义需要调整。',
+    languageKind,
+    verdict: languageKind === 'keep' && !result.used_target
+      ? '表达本身没有问题，但这道题还没有用到目标骨架。'
+      : '还没通过，目标结构或核心语义需要调整。',
     note: result.note || '',
     correction,
     tighter: correction ? null : tighter,
