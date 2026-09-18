@@ -63,7 +63,6 @@ function go(route, arg) {
   window.scrollTo({ top: 0, behavior: 'instant' });
   ROUTES[r](app, arg);
   refreshChip();
-  refreshCaptureDraft();
 }
 bindRouter(go);
 
@@ -101,14 +100,9 @@ function refreshChip() {
   c.hidden = live;
 }
 
-function refreshCaptureDraft() {
-  const dot = $('.capture-draft-dot');
-  if (dot) dot.hidden = !S.getDraft('quickCapture').trim();
-}
-
 $$('#tabbar .tab-destination').forEach(t => t.addEventListener('click', () => go(t.dataset.route)));
 $('#global-capture').addEventListener('click', () => {
-  openQuickCapture(refreshCaptureDraft);
+  openQuickCapture();
 });
 $('#btn-settings').addEventListener('click', () => settingsSheet(refreshChip));
 $('#mode-chip').addEventListener('click', () => settingsSheet(refreshChip));
@@ -147,7 +141,7 @@ await initNetwork(() => processOutbox().then(count => {
 }));
 await initializePlatform({
   go,
-  openCapture: () => openQuickCapture(refreshCaptureDraft),
+  openCapture: () => openQuickCapture(),
   openDrill,
   closeOverlay: closeSheet,
 });

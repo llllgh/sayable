@@ -9,8 +9,20 @@ describe('stage B navigation and capture', () => {
     expect(html).toContain('id="global-capture"');
     expect(html).toContain('<em>记一句</em>');
     expect(html).toContain('<em>表达库</em>');
+    expect(html).not.toContain('capture-draft-dot');
     expect(html).not.toContain('data-route="compress" class="tab"');
     expect(html).not.toContain('data-route="preflight" class="tab"');
+  });
+
+  it('keeps navigation labels unselectable and review actions on a stable grid', () => {
+    const css = readFileSync('css/app.css', 'utf8');
+    const views = readFileSync('js/views.js', 'utf8');
+
+    expect(css).toContain('button{border:0;background:none;padding:0;cursor:pointer;user-select:none;-webkit-user-select:none}');
+    expect(css).toContain('.drill-result-actions{');
+    expect(css).toContain('white-space:nowrap');
+    expect(views).toContain('class="drill-result-actions"');
+    expect(views).toContain('drill-action-wide');
   });
 
   it('keeps both practice modes inside today and removes the inline capture box', () => {

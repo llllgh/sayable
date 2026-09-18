@@ -219,9 +219,9 @@ export function drillCard(it, cue, opts = {}) {
         <p class="skel en">${skel(it.skeleton)}</p>
         ${referenceAnswer ? `<p class="en sub" style="margin-top:8px">${esc(referenceAnswer)}</p>` : ''}
         <p class="dim zh" style="margin-top:8px">${esc(it.why || '')}</p>
-        <div class="row wrap" style="margin-top:12px">
-          <button class="btn btn-pri grow" id="${id}-retry">我再说一次</button>
-          <button class="btn btn-ghost" id="${id}-again">稍后再练</button>
+        <div class="drill-result-actions">
+          <button class="btn btn-pri drill-action-primary" id="${id}-retry">我再说一次</button>
+          <button class="btn btn-ghost drill-action-complete" id="${id}-again">稍后再练</button>
         </div>
       </div>`;
       $('#' + id + '-again')?.addEventListener('click', () => complete(false));
@@ -275,14 +275,14 @@ export function drillCard(it, cue, opts = {}) {
             ? '<p class="tiny zh" style="margin-top:9px">本次按修订后的文字重新判定。</p>'
             : ''}
         <p class="skel en" style="margin-top:12px">${skel(it.skeleton)} <button class="link" id="${id}-play" style="margin-left:6px">朗读</button></p>
-        <div class="row wrap" style="margin-top:13px">
-          ${showRetryPrimary ? `<button class="btn btn-pri grow" id="${id}-retry">${retryPrimary}</button>` : `<button class="btn btn-pri grow" id="${id}-next">完成</button>`}
-          ${showRetryPrimary ? `<button class="btn btn-ghost" id="${id}-next">${ok ? '完成' : '稍后再练'}</button>` : ''}
+        <div class="drill-result-actions">
+          ${showRetryPrimary ? `<button class="btn btn-pri drill-action-primary" id="${id}-retry">${retryPrimary}</button>` : `<button class="btn btn-pri drill-action-primary drill-action-wide" id="${id}-next">完成</button>`}
+          ${showRetryPrimary ? `<button class="btn btn-ghost drill-action-complete" id="${id}-next">${ok ? '完成' : '稍后再练'}</button>` : ''}
           ${attempt?.inputMode === 'voice' && attempt.judgementSource === 'model'
-            ? `<button class="btn btn-ghost" id="${id}-revise">识别有误，修改文字</button>`
+            ? `<button class="btn btn-ghost drill-action-wide" id="${id}-revise">修改识别文字</button>`
             : ''}
           ${ok && !isRetry && canStartRoleplay(nxt) ? `<button class="btn btn-ghost" id="${id}-roleplay">情境对话</button>` : ''}
-          <button class="btn btn-ghost" id="${id}-used">记录实际使用</button>
+          <button class="btn btn-ghost ${ok && !isRetry && canStartRoleplay(nxt) ? '' : 'drill-action-wide'}" id="${id}-used">记录实际使用</button>
         </div>
         <p class="tiny zh" style="margin-top:8px">${isRetry
           ? ok ? '这次已经说清楚了；复习安排仍以首答为准。' : canRetry ? '首答形成的复习安排没有改变。' : '已完成两次重答，先保留结果，之后再独立练习。'
