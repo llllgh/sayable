@@ -3,8 +3,8 @@
   <defs>
     <path id="phrase" d="M47 0H81C111 0 128 17 128 47V101C128 143 105 174 70 194C61 199 53 189 59 181C72 163 79 145 80 128H47C17 128 0 111 0 81V47C0 17 17 0 47 0Z"/>
   </defs>
-  <rect width="512" height="512" rx="112" fill="#123F46"/>
-  <g fill="#C9F3EC">
+  <rect width="512" height="512" rx="112" fill="#F6F8F5"/>
+  <g fill="#087E8B">
     <use href="#phrase" transform="translate(108 208)"/>
     <use href="#phrase" transform="translate(276 138)"/>
   </g>

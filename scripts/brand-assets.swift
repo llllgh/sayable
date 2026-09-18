@@ -42,8 +42,6 @@ func color(_ hex: UInt32) -> CGColor {
                          CGFloat((hex >> 8) & 255) / 255,
                          CGFloat(hex & 255) / 255, 1])!
 }
-let mint = color(0xC9F3EC)
-let teal = color(0x123F46)
 let lake = color(0x087E8B)
 let porcelain = color(0xF6F8F5)
 
@@ -77,7 +75,7 @@ func icon(_ path: String, size: Int, radius: CGFloat = 112, foreground: Bool = f
     try png(path, width: size) { c, w, h in
         c.scaleBy(x: w / 512, y: h / 512)
         if !foreground {
-            c.setFillColor(teal)
+            c.setFillColor(porcelain)
             c.addPath(CGPath(roundedRect: CGRect(x: 0, y: 0, width: 512, height: 512),
                              cornerWidth: radius, cornerHeight: radius, transform: nil))
             c.fillPath()
@@ -85,7 +83,7 @@ func icon(_ path: String, size: Int, radius: CGFloat = 112, foreground: Bool = f
         let scale: CGFloat = foreground ? 2 / 3 : maskScale
         c.translateBy(x: 256 * (1 - scale), y: 256 * (1 - scale))
         c.scaleBy(x: scale, y: scale)
-        c.setFillColor(mint)
+        c.setFillColor(lake)
         mark(c)
     }
 }
@@ -125,7 +123,7 @@ func vector(foreground: String, viewport: Int = 768) -> String {
     """
 }
 for (path, contents) in [
-    ("drawable-v24/ic_launcher_foreground.xml", vector(foreground: "#C9F3EC")),
+    ("drawable-v24/ic_launcher_foreground.xml", vector(foreground: "#087E8B")),
     ("drawable/ic_locue_monochrome.xml", vector(foreground: "#FFFFFF")),
     ("drawable/ic_locue_splash.xml", vector(foreground: "#087E8B", viewport: 768))
 ] {
