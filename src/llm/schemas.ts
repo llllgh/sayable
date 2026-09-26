@@ -3,9 +3,13 @@ import { skeletonAnchoredInExpression } from '../core/capture';
 import { drillDiffersFromExample } from '../core/recommendations';
 import {
   isProfessionalTermCandidate,
+  isTermCandidate,
+  learningItemKey,
   normalizeLearningItemKind,
+  normalizeTermCategory,
   termAppearsInSentence,
 } from '../core/learning-items';
+import { sourceCandidateGrounded } from '../core/source-import';
 
 const nullableText = z.string().nullable().optional();
 const nullWhenMissing = (field: string) => (value: unknown) => (
@@ -385,8 +389,44 @@ export const preflightSchema = z.object({
   avoid: z.string().catch(''),
 }).passthrough();
 
+const sourceCandidateSchema = z.object({
+  kind: z.enum(['expression', 'term']).default('expression'),
+  termCategory: z.enum(['professional', 'precision', 'everyday'])
+    .nullable()
+    .optional(),
+  skeleton: z.string().trim().min(1),
+  zh: z.string().trim().min(1),
+  lemma: nullableText,
+  sense: nullableText,
+  quote: z.string().trim().min(12),
+}).passthrough();
+
+export function sourceExtractionSchemaFor(sourceChunk: string) {
+  return z.object({
+    items: z.array(sourceCandidateSchema),
+  }).passthrough().transform((value) => {
+    const keys = new Set<string>();
+    const items = value.items.filter((item) => {
+      const key = learningItemKey(item);
+      if (!key || keys.has(key)) return false;
+      keys.add(key);
+      if (
+        item.kind === 'term'
+        && (!String(item.lemma || '').trim() || !String(item.sense || '').trim())
+      ) {
+        return false;
+      }
+      return sourceCandidateGrounded(item, sourceChunk);
+    });
+    return { items: items.slice(0, 8) };
+  });
+}
+
 const recommendationItemSchema = z.object({
     kind: z.enum(['expression', 'term']).default('expression'),
+    termCategory: z.enum(['professional', 'precision', 'everyday'])
+      .optional(),
+    sourceCandidateId: z.string().trim().nullable().optional(),
     skeleton: z.string().min(1),
     zh: z.string().min(1),
     lemma: nullableText,
@@ -408,75 +448,124 @@ const recommendationItemSchema = z.object({
     tags: z.array(z.string()).max(3).catch([]),
   });
 
-export const recommendationSchema = z.object({
-  items: z.array(recommendationItemSchema).min(5).max(6),
-}).superRefine((value, context) => {
-  const keys = value.items.map((item) => `${normalizeLearningItemKind(item.kind)}:${item.skeleton
-    .trim()
-    .replace(/\s+/g, ' ')
-    .toLowerCase()}`);
-  if (new Set(keys).size !== keys.length) {
-    context.addIssue({
-      code: 'custom',
-      path: ['items'],
-      message: 'recommendation skeletons must be unique',
+export function recommendationSchemaFor(options: {
+  allowEverydayTerms?: boolean;
+  sourceCandidates?: Array<{
+    id: string;
+    kind: unknown;
+    skeleton: string;
+    lemma?: string;
+  }>;
+} = {}) {
+  return z.object({
+    items: z.array(recommendationItemSchema).min(5).max(6),
+  }).superRefine((value, context) => {
+    const keys = value.items.map((item) => `${normalizeLearningItemKind(item.kind)}:${item.skeleton
+      .trim()
+      .replace(/\s+/g, ' ')
+      .toLowerCase()}`);
+    if (new Set(keys).size !== keys.length) {
+      context.addIssue({
+        code: 'custom',
+        path: ['items'],
+        message: 'recommendation skeletons must be unique',
+      });
+    }
+    const termCount = value.items.filter(item => item.kind === 'term').length;
+    if (termCount > 1 || value.items.length - termCount < 4) {
+      context.addIssue({
+        code: 'custom',
+        path: ['items'],
+        message: 'recommendations require at least four expressions and at most one term',
+      });
+    }
+    value.items.forEach((item, index) => {
+      const sourceCandidateId = String(item.sourceCandidateId || '').trim();
+      if (sourceCandidateId) {
+        const candidate = options.sourceCandidates?.find(
+          source => source.id === sourceCandidateId,
+        );
+        if (
+          !candidate
+          || learningItemKey(candidate) !== learningItemKey(item)
+        ) {
+          context.addIssue({
+            code: 'custom',
+            path: ['items', index, 'sourceCandidateId'],
+            message: 'source-backed recommendation must preserve its candidate',
+          });
+        }
+      }
+      if (
+        item.kind === 'expression'
+        && !skeletonAnchoredInExpression(item.skeleton, item.example)
+      ) {
+        context.addIssue({
+          code: 'custom',
+          path: ['items', index, 'example'],
+          message: 'recommendation example must instantiate the skeleton',
+        });
+      }
+      if (item.kind === 'term' && !isTermCandidate(item)) {
+        context.addIssue({
+          code: 'custom',
+          path: ['items', index],
+          message: 'term recommendation must be category-appropriate and usage-ready',
+        });
+      }
+      if (
+        item.kind === 'term'
+        && normalizeTermCategory(item.termCategory) === 'everyday'
+        && !options.allowEverydayTerms
+      ) {
+        context.addIssue({
+          code: 'custom',
+          path: ['items', index, 'termCategory'],
+          message: 'everyday vocabulary requires explicit learner preference',
+        });
+      }
+      if (
+        item.kind === 'term'
+        && !termAppearsInSentence(item.lemma || item.skeleton, item.drill.answer)
+      ) {
+        context.addIssue({
+          code: 'custom',
+          path: ['items', index, 'drill', 'answer'],
+          message: 'term drill answer must use the target term',
+        });
+      }
+      if (!drillDiffersFromExample(item.example_zh, item.drill.target_zh)) {
+        context.addIssue({
+          code: 'custom',
+          path: ['items', index, 'drill', 'target_zh'],
+          message: 'recommendation drill must transfer the skeleton to a different scenario',
+        });
+      }
+      if (
+        item.kind === 'expression'
+        && !skeletonAnchoredInExpression(item.skeleton, item.drill.answer)
+      ) {
+        context.addIssue({
+          code: 'custom',
+          path: ['items', index, 'drill', 'answer'],
+          message: 'recommendation drill answer must instantiate the skeleton',
+        });
+      }
     });
-  }
-  const termCount = value.items.filter(item => item.kind === 'term').length;
-  if (termCount > 1 || value.items.length - termCount < 4) {
-    context.addIssue({
-      code: 'custom',
-      path: ['items'],
-      message: 'recommendations require at least four expressions and at most one term',
-    });
-  }
-  value.items.forEach((item, index) => {
     if (
-      item.kind === 'expression'
-      && !skeletonAnchoredInExpression(item.skeleton, item.example)
+      options.sourceCandidates?.length
+      && !value.items.some(item => String(item.sourceCandidateId || '').trim())
     ) {
       context.addIssue({
         code: 'custom',
-        path: ['items', index, 'example'],
-        message: 'recommendation example must instantiate the skeleton',
-      });
-    }
-    if (item.kind === 'term' && !isProfessionalTermCandidate(item)) {
-      context.addIssue({
-        code: 'custom',
-        path: ['items', index],
-        message: 'term recommendation must be professionally specific and usage-ready',
-      });
-    }
-    if (
-      item.kind === 'term'
-      && !termAppearsInSentence(item.lemma || item.skeleton, item.drill.answer)
-    ) {
-      context.addIssue({
-        code: 'custom',
-        path: ['items', index, 'drill', 'answer'],
-        message: 'term drill answer must use the target term',
-      });
-    }
-    if (!drillDiffersFromExample(item.example_zh, item.drill.target_zh)) {
-      context.addIssue({
-        code: 'custom',
-        path: ['items', index, 'drill', 'target_zh'],
-        message: 'recommendation drill must transfer the skeleton to a different scenario',
-      });
-    }
-    if (
-      item.kind === 'expression'
-      && !skeletonAnchoredInExpression(item.skeleton, item.drill.answer)
-    ) {
-      context.addIssue({
-        code: 'custom',
-        path: ['items', index, 'drill', 'answer'],
-        message: 'recommendation drill answer must instantiate the skeleton',
+        path: ['items'],
+        message: 'recommendations must consume at least one pending source candidate',
       });
     }
   });
-});
+}
+
+export const recommendationSchema = recommendationSchemaFor();
 
 export const roleplayStartSchema = z.object({
   role: z.string().trim().min(1),

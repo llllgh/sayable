@@ -6,6 +6,7 @@ export const LLM_OUTPUT_TOKENS = {
   judge: 4_096,
   compress: 8_192,
   meetingPreflight: 8_192,
+  sourceExtraction: 8_192,
   recommendation: 8_192,
   roleplayStart: 4_096,
   roleplayContinue: 4_096,

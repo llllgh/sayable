@@ -1,4 +1,5 @@
 import { reviewPromptMode } from './review-support';
+import { normalizeTermCategory, type TermCategory } from './learning-items';
 
 export interface ReviewCueDrill {
   brief?: string;
@@ -9,6 +10,7 @@ export interface ReviewCueDrill {
 export interface ReviewCueItem {
   box: number;
   kind?: 'expression' | 'term';
+  termCategory?: TermCategory;
   zh?: string;
   sense?: string;
   trigger?: string;
@@ -51,16 +53,22 @@ export function buildReviewCue(item: ReviewCueItem): ReviewCue {
 
   if (item.kind === 'term') {
     const sense = clean(item.sense) || meaning;
+    const category = normalizeTermCategory(item.termCategory);
+    const scene = category === 'everyday'
+      ? '生活场景'
+      : category === 'precision'
+        ? '真实场景'
+        : '工作场景';
     if (guided && sense) {
       return {
-        brief: `在一句工作场景英文中使用这个词，表达：${sense}`,
+        brief: `在一句${scene}英文中使用这个词，表达：${sense}`,
         ctx: sense,
         target_zh: sense,
         trigger,
       };
     }
     return {
-      brief: scenarioTask || `根据这个工作含义完整说一句英文：${sense}`,
+      brief: scenarioTask || `根据这个词义，在${scene}中完整说一句英文：${sense}`,
       ctx: trigger || sense || scenarioTask,
       target_zh: sense,
       trigger,

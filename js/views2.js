@@ -41,6 +41,11 @@ import {
   recordMatchesQuery,
   recordNeedsAttention,
 } from '../src/core/library.ts';
+import { termCategoryLabel } from '../src/core/learning-items.ts';
+import {
+  sourceTextIssue,
+  sourceWordCount,
+} from '../src/core/source-import.ts';
 
 /* ---------------------------------------------------------------- 压缩台 */
 const compressionPatternKey = (value) => String(value || '')
@@ -506,6 +511,177 @@ export function viewCompress(app, arg) {
   }
 }
 
+/* ---------------------------------------------------------------- 长文本导入 */
+const sourceJobs = new Map();
+
+function sourceStatus(document) {
+  if (document.status === 'ready') {
+    return {
+      label: '已完成',
+      className: 'acc',
+      detail: `${document.candidateCount} 个候选已进入推荐池`,
+    };
+  }
+  if (document.status === 'processing') {
+    return {
+      label: '提炼中',
+      className: 'acc',
+      detail: `${document.nextChunkIndex} / ${document.chunkCount} 段`,
+    };
+  }
+  return {
+    label: document.status === 'failed' ? '提炼失败' : '待继续',
+    className: 'rose',
+    detail: document.error || `${document.nextChunkIndex} / ${document.chunkCount} 段`,
+  };
+}
+
+function runSourceJob(documentId, app) {
+  if (sourceJobs.has(documentId)) return sourceJobs.get(documentId);
+  const promise = (async () => {
+    let document = S.resumeSourceDocument(documentId);
+    try {
+      while (
+        document
+        && document.status === 'processing'
+        && document.nextChunkIndex < document.chunkCount
+      ) {
+        const chunkIndex = document.nextChunkIndex;
+        const chunk = S.sourceDocumentChunk(document.id, chunkIndex);
+        if (!chunk) throw new Error('无法读取下一段原文');
+        const result = await L.extractSourceChunk(chunk, {
+          title: document.title,
+          chunkIndex,
+          chunkCount: document.chunkCount,
+        });
+        document = S.completeSourceChunk(
+          document.id,
+          chunkIndex,
+          result.items,
+        );
+        await S.flush();
+        if (app.dataset.route === 'source') viewSourceImport(app);
+      }
+    } catch (error) {
+      S.failSourceDocument(documentId, L.userMessage(error));
+      if (app.dataset.route === 'source') viewSourceImport(app);
+    }
+  })().finally(() => {
+    sourceJobs.delete(documentId);
+  });
+  sourceJobs.set(documentId, promise);
+  return promise;
+}
+
+export function viewSourceImport(app) {
+  const draft = S.state.sourceDraft;
+  const stats = S.sourcePoolStats();
+  const recent = S.state.sourceDocuments.slice(0, 6);
+  const bodyWords = sourceWordCount(draft.body);
+
+  app.innerHTML = `<div class="view stack source-import-view">
+    <div class="page-head">
+      <div class="page-head-copy">
+        <h1 class="h-lg zh">导入长文本</h1>
+        <p class="sub zh">粘贴英文正文，分段提炼后陆续进入今日推荐。</p>
+      </div>
+    </div>
+
+    <section class="source-import-form">
+      <label class="fld"><span>正文</span>
+        <textarea id="source-body" rows="12" placeholder="粘贴播客逐字稿、文章或文档正文">${esc(draft.body)}</textarea>
+        <small id="source-word-count">${bodyWords} 个英文词 · 至少 80 个</small>
+      </label>
+      <label class="fld"><span>来源名称（选填）</span>
+        <input id="source-title" type="text" value="${esc(draft.title)}" placeholder="例如：Istio 可观测性文档" />
+      </label>
+      <label class="fld"><span>出处链接（选填）</span>
+        <input id="source-url" type="url" value="${esc(draft.sourceUrl)}" placeholder="https://" />
+      </label>
+      <button class="btn btn-pri btn-blk" id="source-start">开始提炼</button>
+    </section>
+
+    ${stats.sources ? `<section class="source-pool-summary">
+      <span><strong>${stats.pending}</strong> 待推荐</span>
+      <span><strong>${stats.used}</strong> 已采用</span>
+    </section>` : ''}
+
+    ${recent.length ? `<div>
+      <div class="sec"><span class="eyebrow">最近来源</span><hr/></div>
+      <div class="source-document-list">${recent.map(document => {
+        const status = sourceStatus(document);
+        return `<article class="source-document">
+          <div class="source-document-head">
+            <span class="grow"><strong>${esc(document.title)}</strong>
+              <small>${esc(status.detail)}</small></span>
+            <span class="chip ${status.className}">${status.label}</span>
+          </div>
+          ${document.sourceUrl ? `<p class="source-document-url">${esc(document.sourceUrl)}</p>` : ''}
+          <div class="source-document-actions">
+            ${document.status === 'failed' || document.status === 'interrupted'
+              ? `<button class="btn btn-sm btn-pri" data-source-resume="${esc(document.id)}">继续提炼</button>`
+              : ''}
+            ${document.status !== 'processing'
+              ? `<button class="btn btn-sm btn-ghost" data-source-delete="${esc(document.id)}">删除</button>`
+              : ''}
+          </div>
+        </article>`;
+      }).join('')}</div>
+    </div>` : ''}
+  </div>`;
+
+  const persistDraft = () => {
+    S.updateSourceDraft({
+      body: $('#source-body', app).value,
+      title: $('#source-title', app).value,
+      sourceUrl: $('#source-url', app).value,
+    });
+  };
+  $('#source-body', app).addEventListener('input', event => {
+    persistDraft();
+    $('#source-word-count', app).textContent = `${sourceWordCount(event.currentTarget.value)} 个英文词 · 至少 80 个`;
+  });
+  $('#source-title', app).addEventListener('input', persistDraft);
+  $('#source-url', app).addEventListener('input', persistDraft);
+  $('#source-start', app).addEventListener('click', async event => {
+    persistDraft();
+    const issue = sourceTextIssue(S.state.sourceDraft.body);
+    if (issue) {
+      toast(issue);
+      $('#source-body', app).focus();
+      return;
+    }
+    event.currentTarget.disabled = true;
+    try {
+      const document = S.createSourceDocument(S.state.sourceDraft);
+      await S.flush();
+      viewSourceImport(app);
+      runSourceJob(document.id, app);
+    } catch (error) {
+      event.currentTarget.disabled = false;
+      toast(error instanceof Error ? error.message : String(error));
+    }
+  });
+  $$('[data-source-resume]', app).forEach(button => button.addEventListener(
+    'click',
+    () => {
+      const documentId = button.dataset.sourceResume;
+      S.resumeSourceDocument(documentId);
+      viewSourceImport(app);
+      runSourceJob(documentId, app);
+    },
+  ));
+  $$('[data-source-delete]', app).forEach(button => button.addEventListener(
+    'click',
+    () => {
+      const document = S.getSourceDocument(button.dataset.sourceDelete);
+      if (!document || !confirm(`删除“${document.title}”及其候选？`)) return;
+      S.deleteSourceDocument(document.id);
+      viewSourceImport(app);
+    },
+  ));
+}
+
 /* ---------------------------------------------------------------- 会前热身 */
 function renderPreflightResult(out, r, sc) {
   const reuse = (r.reuse || []).map(x => ({ ...x, it: S.getItem(x.id) })).filter(x => x.it);
@@ -748,6 +924,9 @@ export function viewLibrary(app, arg = {}) {
     </div>
 
     <section class="library-tools" aria-label="表达工具">
+      <button type="button" data-nav="source">
+        <span class="grow"><strong>导入长文本</strong><small>从真实文本提炼后续推荐</small></span><span aria-hidden="true">›</span>
+      </button>
       <button type="button" data-nav="compress">
         <span class="grow"><strong>精简表达</strong><small>保留重点，把长段落说短</small></span><span aria-hidden="true">›</span>
       </button>
@@ -771,7 +950,7 @@ export function viewLibrary(app, arg = {}) {
       <div class="library-list">
         ${list.length ? list.map(i => `<button type="button" class="library-item" data-item="${i.id}">
           <span class="grow">
-            ${i.kind === 'term' ? '<span class="chip warm">专业词汇</span>' : ''}
+            ${i.kind === 'term' ? `<span class="chip warm">${termCategoryLabel(i.termCategory)}</span>` : ''}
             <span class="skel en">${skel(i.skeleton)}</span>
             <span class="library-item-meaning zh">${esc(i.zh)}</span>
             <span class="library-item-state">${i.history.length ? `练习 ${i.history.length} 次` : '未练习'} · ${i.dueAt === Infinity ? '已完成' : `${inWords(i.dueAt)}复习`}</span>
@@ -944,6 +1123,8 @@ export function profileSheet() {
     <label class="fld"><span>主要跟谁说英语</span><input type="text" id="p-cp" value="${esc(CSV(p.counterparts))}" placeholder="填写沟通对象（选填）" /></label>
     <label class="fld"><span>高频真实场景（造句和出题会轮着用）</span><textarea id="p-sc" rows="3" placeholder="填写常见沟通场景（选填）">${esc(CSV(p.scenarios))}</textarea></label>
     <label class="fld"><span>近期要面对的事</span><textarea id="p-up" rows="2" placeholder="填写近期场景（选填）">${esc(p.upcoming)}</textarea></label>
+    <label class="toggle-row"><span><b>也推荐生活用语</b><small>例如点单、住宿和处理日常物品</small></span>
+      <input type="checkbox" id="p-everyday-vocabulary" ${p.everydayVocabulary ? 'checked' : ''} /></label>
     <button class="btn btn-pri btn-blk" id="p-save">保存</button>`, () => {
     const updateLevelPreview = () => {
       const score = $('#p-level-score').value.trim();
@@ -971,6 +1152,7 @@ export function profileSheet() {
         domains: parse($('#p-dom').value),
         counterparts: parse($('#p-cp').value), scenarios: parse($('#p-sc').value),
         upcoming: $('#p-up').value.trim(),
+        everydayVocabulary: $('#p-everyday-vocabulary').checked,
       });
       S.save(); closeSheet(); toast(
         englishLevel ? `画像已更新 · ${englishLevelLabel(englishLevel)}` : '画像已更新',

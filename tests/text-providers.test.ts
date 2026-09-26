@@ -161,6 +161,7 @@ describe('text provider profiles', () => {
     expect(LLM_OUTPUT_TOKENS.capture).toBe(8192);
     expect(LLM_OUTPUT_TOKENS.compress).toBe(8192);
     expect(LLM_OUTPUT_TOKENS.meetingPreflight).toBe(8192);
+    expect(LLM_OUTPUT_TOKENS.sourceExtraction).toBe(8192);
     expect(LLM_OUTPUT_TOKENS.recommendation).toBe(8192);
     expect(LLM_REQUEST_TIMEOUT_MS).toBeGreaterThanOrEqual(60_000);
   });

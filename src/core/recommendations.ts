@@ -1,8 +1,10 @@
 import {
-  isProfessionalTermCandidate,
+  isTermCandidate,
   learningItemKey,
   normalizeLearningItemKind,
+  normalizeTermCategory,
   type LearningItemKind,
+  type TermCategory,
 } from './learning-items';
 
 export const MIN_DAILY_RECOMMENDATIONS = 5;
@@ -19,7 +21,13 @@ export interface RecommendationDrill {
 
 export interface RecommendationCard {
   id: string;
+  sourceCandidateId: string;
+  sourceDocumentId: string;
+  sourceQuote: string;
+  sourceTitle: string;
+  sourceUrl: string;
   kind: LearningItemKind;
+  termCategory: TermCategory | '';
   skeleton: string;
   zh: string;
   lemma: string;
@@ -146,7 +154,7 @@ function normalizeCard(
     || !drillTargetZh
     || !drillAnswer
     || !drillDiffersFromExample(exampleZh, drillTargetZh)
-    || (kind === 'term' && !isProfessionalTermCandidate(value))
+    || (kind === 'term' && !isTermCandidate(value))
   ) return null;
 
   const id = text(value.id) || idFactory?.() || '';
@@ -154,7 +162,15 @@ function normalizeCard(
 
   return {
     id,
+    sourceCandidateId: text(value.sourceCandidateId),
+    sourceDocumentId: text(value.sourceDocumentId),
+    sourceQuote: text(value.sourceQuote),
+    sourceTitle: text(value.sourceTitle),
+    sourceUrl: text(value.sourceUrl),
     kind,
+    termCategory: kind === 'term'
+      ? normalizeTermCategory(value.termCategory)
+      : '',
     skeleton,
     zh,
     lemma: kind === 'term' ? text(value.lemma) || skeleton : '',
@@ -228,6 +244,7 @@ export function createDailyRecommendationDeck(input: {
   items: unknown[];
   idFactory: () => string;
   random?: () => number;
+  allowEverydayTerms?: boolean;
 }): DailyRecommendationDeck {
   const cards = uniqueCards(input.items, input.idFactory);
   if (cards.length < MIN_DAILY_RECOMMENDATIONS) {
@@ -235,7 +252,15 @@ export function createDailyRecommendationDeck(input: {
   }
   const termCount = cards.filter(card => card.kind === 'term').length;
   if (termCount > TARGET_DAILY_TERMS || cards.length - termCount < 4) {
-    throw new Error('今日推荐需包含至少 4 个表达，专业词汇最多 1 个');
+    throw new Error('今日推荐需包含至少 4 个表达，词汇最多 1 个');
+  }
+  if (
+    !input.allowEverydayTerms
+    && cards.some(card => (
+      card.kind === 'term' && card.termCategory === 'everyday'
+    ))
+  ) {
+    throw new Error('生活用语推荐需要先在学习偏好中开启');
   }
 
   return {

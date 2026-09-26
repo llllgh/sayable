@@ -23,7 +23,9 @@ describe('stage C library and tool restoration', () => {
     expect(library).toContain('学习记录');
     expect(library).toContain('library-kind-filter');
     expect(library).toContain("['term', `词汇 ${termCount}`]");
-    expect(library).toContain('专业词汇');
+    expect(library).toContain('termCategoryLabel(i.termCategory)');
+    expect(library).toContain('导入长文本');
+    expect(library).toContain('data-nav="source"');
     expect(library).toContain('待查看');
     expect(library).toContain('已处理');
   });

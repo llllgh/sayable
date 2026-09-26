@@ -17,6 +17,7 @@ import {
   state,
   isLive,
   llmUsage,
+  pendingSourceCandidatePool,
   recordLlmUsage,
 } from './store.js';
 import { requestStructured, preflightProvider } from '../src/llm/client.ts';
@@ -26,12 +27,13 @@ import {
   compressSchema,
   judgeSchema,
   preflightSchema,
-  recommendationSchema,
+  recommendationSchemaFor,
   restatementSchema,
   reviewCueSchemaFor,
   roleplayContinueSchema,
   roleplayJudgeSchema,
   roleplayStartSchema,
+  sourceExtractionSchemaFor,
 } from '../src/llm/schemas.ts';
 import {
   normalizeJudgementText,
@@ -50,6 +52,7 @@ import { isOnline } from '../src/platform/network.ts';
 import {
   isProfessionalTermCandidate,
   normalizeLearningItem,
+  termCategoryLabel,
 } from '../src/core/learning-items.ts';
 
 export { LlmError, userMessage };
@@ -73,6 +76,7 @@ function profileBlock() {
     p.englishLevel?.cefr && `英语水平：${englishLevelLabel(p.englishLevel)}${
       p.englishLevel.approximate ? '（仅用于难度适配的近似换算）' : ''
     }`,
+    `生活用语推荐：${p.everydayVocabulary ? '已明确开启' : '未开启'}`,
     `英语变体偏好：${p.variety || 'international'}`,
   ].filter(Boolean).join('\n');
 }
@@ -232,7 +236,7 @@ export async function testProvider(config = {}) {
 export async function capture(text, forcedMode) {
   const mode = forcedMode || detectMode(text);
   const owned = state.items.filter(i => i.status !== 'retired').slice(0, 20)
-    .map(i => `- id=${i.id} | ${i.kind === 'term' ? '专业词汇' : '表达'} | ${i.skeleton}（${i.zh}）`).join('\n');
+    .map(i => `- id=${i.id} | ${i.kind === 'term' ? termCategoryLabel(i.termCategory) : '表达'} | ${i.skeleton}（${i.zh}）`).join('\n');
   const user = `${SCHEMA_HINT}
 
 【学习者画像】
@@ -263,7 +267,12 @@ export async function regenerateReviewCue(item) {
   const currentDrill = item?.drill && typeof item.drill === 'object'
     ? item.drill
     : null;
-  const targetKind = item?.kind === 'term' ? '专业词汇' : '英文表达骨架';
+  const targetKind = item?.kind === 'term'
+    ? termCategoryLabel(item.termCategory)
+    : '英文表达骨架';
+  const sceneKind = item?.kind === 'term' && item?.termCategory === 'everyday'
+    ? '生活场景'
+    : '真实场景';
   const sys = `你是中文母语职业人士的英语表达教练。你只为一个已经保存的${targetKind}生成复习提示，不修改学习目标本身。
 
 硬性要求：
@@ -272,9 +281,9 @@ export async function regenerateReviewCue(item) {
 3. brief 必须是自然的中文任务描述，可用「当你想跟同事说：……」等形式，但不得泛化成「聊聊成本」「和外国同事沟通」。
 4. trigger、brief 和 target_zh 都不得出现目标英文骨架、完整英文答案或中英夹杂。
 5. 必须做迁移练习：不得翻译、改写或复述 seeds、anchorSentence、当前 drill；新题至少更换两个关键信息（如对象、动作、数量、时间、因果或沟通目的），不能只是替换一个名词。
-6. 可从原始输入与画像中选择另一个适用场景；信息不足时使用中性的假设工作场景，不得把假设写成用户真实经历。
+6. 可从原始输入与画像中选择另一个适用场景；信息不足时使用中性的假设${sceneKind}，不得把假设写成用户真实经历。
 7. answer 必须是 target_zh 对应的自然英文答案，直接使用目标${item?.kind === 'term' ? '词汇' : '骨架'}，且与所有参考例句明显不同。
-8. brief、target_zh 与 answer 必须描述同一件事；要求完整工作场景句，不考孤立翻译。只输出 JSON：
+8. brief、target_zh 与 answer 必须描述同一件事；要求完整${sceneKind}句，不考孤立翻译。只输出 JSON：
 {"trigger":"触发情境与沟通意图","brief":"不同于参考句的具体中文任务","target_zh":"新场景中要用英文说出的完整中文意思","answer":"新场景对应的英文答案"}`;
   const user = `【学习者画像】
 ${profileBlock()}
@@ -283,6 +292,7 @@ ${profileBlock()}
 ${JSON.stringify({
     skeleton: item?.skeleton || '',
     kind: item?.kind || 'expression',
+    termCategory: item?.termCategory || '',
     collocations: item?.collocations || [],
     anchorSentence: item?.anchorSentence || '',
     zh: item?.zh || '',
@@ -309,16 +319,19 @@ ${JSON.stringify({
 /* ---------- 2) 判卷（召回 / 立刻造句 都用这个） ---------- */
 export async function judge({
   kind = 'expression',
+  termCategory,
   skeleton,
   zh,
   brief,
   answer,
   seeds = [],
 }) {
-  const targetLabel = kind === 'term' ? '目标专业词汇' : '目标骨架';
+  const targetLabel = kind === 'term'
+    ? `目标${termCategoryLabel(termCategory)}`
+    : '目标骨架';
   const sys = `你是英语表达教练，给学习者的产出打分。原则：
 - 本题只检验学习者能否主动调用**${targetLabel}**。${kind === 'term'
-    ? '只要在完整工作场景句中正确使用目标词汇、搭配自然且核心语义成立，就应通过；孤立写出单词不算通过。'
+    ? '只要在完整场景句中正确使用目标词汇、搭配自然且核心语义成立，就应通过；孤立写出单词不算通过。'
     : '只要用对目标骨架、槽位关系正确且核心语义成立，就应通过；用词与参考例句不同没关系。'}
 - 大小写、句号、逗号等标点是 ASR 格式噪声，必须完全忽略，不得据此扣分。
 - 主谓一致、冠词、单复数、局部词形或局部时态错误，如果不改变核心语义，属于 minor：仍然通过，同时在 fix 中给出最小修正。例如 "compacting context help you" 应判通过，并修正为 "compacting context helps you"。
@@ -439,6 +452,45 @@ export async function preflight(scenario, items) {
   return out;
 }
 
+/* ---------- 4.1) 长文本候选提炼 ---------- */
+export async function extractSourceChunk(chunk, {
+  title = '',
+  chunkIndex = 0,
+  chunkCount = 1,
+} = {}) {
+  const sys = `你是一名英语语料编辑。你的任务不是总结文章，而是从原文中挑出值得中文母语职业人士主动掌握的英语表达。
+
+硬性要求：
+1. 每个分块最多返回 6 个候选；没有足够好的内容时可返回空数组，不得凑数。
+2. 只接受两类候选：
+   - expression：原文中真实出现、可迁移到至少 3 个场景的高频表达骨架，用 X / Y / Z 替换可变内容；
+   - term：专业词汇、精确书面用词或具体生活用语，termCategory 分别填 professional、precision、everyday。
+3. quote 必须逐字摘自本分块，保留足以证明用法的一句原文，不得改写、翻译或拼接。
+4. expression 的 skeleton 必须能在 quote 中直接找到固定词序；term 的 lemma 必须真实出现在 quote 中。
+5. 排除专有名词、产品名、基础词、只在本段成立的事实、低频炫技词、口头填充语和缺少复用价值的完整句。
+6. 第一遍只做轻量候选提取，不生成练习、搭配、例句或长解释。
+7. 只输出 JSON，不要 markdown 或额外说明。
+
+JSON：
+{"items":[{"kind":"expression|term","termCategory":"仅 term 填 professional|precision|everyday","skeleton":"表达骨架或目标词","zh":"简洁准确的中文含义","lemma":"仅 term 填目标词，否则 null","sense":"仅 term 填当前语境义项，否则 null","quote":"逐字摘录的一句原文"}]}`;
+  const user = `【来源】${title || '未命名来源'}
+【分块】${Number(chunkIndex) + 1} / ${Math.max(1, Number(chunkCount) || 1)}
+
+【原文】
+"""
+${chunk}
+"""`;
+  return await chat(
+    [{ role: 'system', content: sys }, { role: 'user', content: user }],
+    sourceExtractionSchemaFor(chunk),
+    {
+      temperature: 0.2,
+      maxTokens: LLM_OUTPUT_TOKENS.sourceExtraction,
+      task: 'source_extraction',
+    },
+  );
+}
+
 /* ---------- 5) 今日推荐 ---------- */
 export async function recommendDaily() {
   const ownExamples = state.items
@@ -455,16 +507,32 @@ export async function recommendDaily() {
   const existing = state.items
     .filter(item => item.status !== 'retired')
     .slice(0, 30)
-    .map(item => `- id=${item.id} | ${item.kind === 'term' ? '专业词汇' : '表达'} | ${String(item.skeleton || '').slice(0, 120)}（${String(item.zh || '').slice(0, 80)}）| 触发时机：${String(item.trigger || '未补充').slice(0, 100)}`)
+    .map(item => `- id=${item.id} | ${item.kind === 'term' ? termCategoryLabel(item.termCategory) : '表达'} | ${String(item.skeleton || '').slice(0, 120)}（${String(item.zh || '').slice(0, 80)}）| 触发时机：${String(item.trigger || '未补充').slice(0, 100)}`)
+    .join('\n');
+  const sourceCandidates = pendingSourceCandidatePool(12);
+  const sourceCandidateBlock = sourceCandidates
+    .map(candidate => [
+      `- sourceCandidateId=${candidate.id}`,
+      `kind=${candidate.kind}`,
+      candidate.kind === 'term' ? `termCategory=${candidate.termCategory}` : '',
+      `target=${candidate.skeleton}`,
+      `中文=${candidate.zh}`,
+      `原文=${candidate.quote}`,
+      `来源=${candidate.sourceTitle}`,
+    ].filter(Boolean).join(' | '))
     .join('\n');
   const sys = `你是一名为中文母语职业人士挑选高频英语表达的教练。
 
 本次任务是生成一副“今日推荐”牌组。严格遵守：
-1. 固定给 5 个不同学习单元。优先给 4 个可复用表达骨架 + 1 个专业词汇；若找不到真正适合学习者工作场景的专业词汇，就给 5 个表达，不得硬凑。
+1. 固定给 5 个不同学习单元。优先给 4 个可复用表达骨架 + 1 个词汇；若找不到真正适合学习者的词汇，就给 5 个表达，不得硬凑。
 2. 优先依据学习者的岗位、学习目的、沟通对象、真实场景、CEFR 英语水平和他过去自己造过的句子；资料不足时使用中性职业场景，不虚构项目、公司、客户或结论。
-3. 表达必须覆盖不同交际功能，且不能与已有条目重复或只是换词改写。专业词汇不得是通用基础词、考试词表词、罕见高级同义词；必须是该岗位/领域高频、含义边界明确并能直接进入工作句子的词或固定术语。
+3. 表达必须覆盖不同交际功能，且不能与已有条目重复或只是换词改写。词汇分三类，只选择最贴合学习者的一类：
+   - professional：岗位或专业领域高频、含义边界明确、能直接进入工作句子的词或固定术语；
+   - precision：较高级但不生僻的单个词，常用于书面或正式沟通，能像 mitigate 一样替代一串啰嗦解释；
+   - everyday：具体生活场景中的自然说法，如 neat、on the rocks、chipped。仅当画像明确写着“生活用语推荐：已明确开启”时允许，否则严禁生成。
+   三类都不得是通用基础词、考试词表凑数项或罕见炫技同义词。
 4. 只选务实母语者在会议、邮件或日常协作中真的会说的高频结构。禁止 AI 味、教科书味、低频俚语和花哨表达，包括 ${BLACKLIST.map(item => `"${item}"`).join('、')}。
-5. kind=expression 时，skeleton 是表达骨架，example 必须直接实例化 skeleton。kind=term 时，skeleton 与 lemma 都填目标词；sense 是当前专业语境中的准确义项；collocations 给 2—4 个高频工作搭配；anchorSentence 是包含该词的真实工作场景句；domainTags 给具体领域；relatedExpressionIds 仅填写确实能与该词组合的已有表达 id，没有则空数组。
+5. kind=expression 时，skeleton 是表达骨架，example 必须直接实例化 skeleton。kind=term 时必须填写 termCategory，skeleton 与 lemma 都填目标词或固定用语；sense 是当前语境中的准确义项；collocations 给 2—4 个高频搭配；anchorSentence 是包含该词的真实场景句；professional 必须给具体 domainTags，其他类别可给适用场景标签；relatedExpressionIds 仅填写确实能与该词组合的已有表达 id，没有则空数组。
 6. trigger 是「情境信号 + 沟通意图」，写成「当……时，……」；example 是一条完整、自然、可直接朗读的英文例句，并且必须使用目标表达或词汇；example_zh 是该例句准确、完整的中文意思。
 7. drill 必须是迁移练习，而不是例句翻译：
    - drill.target_zh 是学习者要翻译成英文的一句具体、完整中文，必须自然地套用同一个 skeleton；
@@ -472,13 +540,14 @@ export async function recommendDaily() {
    - 不得只是对 example_zh 换几个近义词、调整语序或补充背景；即使话题相近，也必须产生一条内容上不同的新表达；
    - drill.brief 用中文简短交代新情境和沟通动作，不出现目标英文骨架或英文答案。
    - drill.answer 是 target_zh 对应的自然英文参考答案，必须直接实例化 skeleton，且与 example 使用不同槽位内容。
-8. 专业词汇也必须通过场景句产出练习，不能考孤立翻译、拼写或词义选择。drill.answer 必须自然使用 lemma。
+8. 所有词汇都必须通过场景句产出练习，不能考孤立翻译、拼写或词义选择。drill.answer 必须自然使用 lemma。
 9. why 必须简短说明它为什么适合这个学习者，不得声称用户提供过不存在的事实。
 10. 输出前逐项对照 example_zh 与 drill.target_zh；若两句表达的是同一件事，必须重写 drill。
-11. 只输出 JSON，不要 markdown 或额外说明。
+11. 若提供“长文本候选池”，本次必须采用其中至少 1 个候选。采用时填写准确的 sourceCandidateId，kind、skeleton 和 lemma 必须与候选完全一致；quote 只用于理解真实用法，不要把原文场景直接复制成练习。其余推荐仍按画像生成。
+12. 只输出 JSON，不要 markdown 或额外说明。
 
 JSON：
-{"items":[{"kind":"expression|term","skeleton":"表达骨架或目标词","zh":"表达中文意思或词汇准确义项","lemma":"仅 term 填目标词，否则 null","sense":"仅 term 填专业语境义项，否则 null","collocations":["仅 term：2—4 个高频搭配"],"anchorSentence":"仅 term：包含目标词的工作场景句，否则 null","relatedExpressionIds":["仅 term：可组合的已有表达 id"],"domainTags":["仅 term：具体领域标签"],"trigger":"触发情境与沟通意图","why":"...","example":"英文例句","example_zh":"英文例句的完整中文意思","drill":{"brief":"不同于例句的具体中文情境任务","target_zh":"在新场景中要用英文说出的完整中文意思","answer":"新场景对应的英文参考答案"},"register":"meeting|email|casual","tags":["最多3个中文标签"]}]}`;
+{"items":[{"sourceCandidateId":"采用候选池时填写其 id，否则省略","kind":"expression|term","termCategory":"仅 term 填 professional|precision|everyday；expression 可省略","skeleton":"表达骨架或目标词","zh":"表达中文意思或词汇准确义项","lemma":"仅 term 填目标词，否则 null","sense":"仅 term 填当前语境义项，否则 null","collocations":["仅 term：2—4 个高频搭配"],"anchorSentence":"仅 term：包含目标词的真实场景句，否则 null","relatedExpressionIds":["仅 term：可组合的已有表达 id"],"domainTags":["professional 必填具体领域；其他词汇可填适用场景"],"trigger":"触发情境与沟通意图","why":"...","example":"英文例句","example_zh":"英文例句的完整中文意思","drill":{"brief":"不同于例句的具体中文情境任务","target_zh":"在新场景中要用英文说出的完整中文意思","answer":"新场景对应的英文参考答案"},"register":"meeting|email|casual","tags":["最多3个中文标签"]}]}`;
   const user = `【学习者画像】
 ${profileBlock()}
 
@@ -488,17 +557,39 @@ ${ownExamples || '（暂无）'}
 【已经在句库里的骨架，不要重复】
 ${existing || '（暂无）'}
 
-生成今天的 5 个推荐。专业词汇最多 1 个，不合适就全部给表达。`;
+【长文本候选池】
+${sourceCandidateBlock || '（暂无）'}
 
-  return await chat(
+生成今天的 5 个推荐。词汇最多 1 个，不合适就全部给表达。`;
+
+  const out = await chat(
     [{ role: 'system', content: sys }, { role: 'user', content: user }],
-    recommendationSchema,
+    recommendationSchemaFor({
+      allowEverydayTerms: Boolean(state.profile.everydayVocabulary),
+      sourceCandidates,
+    }),
     {
       temperature: 0.65,
       maxTokens: LLM_OUTPUT_TOKENS.recommendation,
       task: 'recommendation',
     },
   );
+  const candidateById = new Map(
+    sourceCandidates.map(candidate => [candidate.id, candidate]),
+  );
+  return {
+    ...out,
+    items: out.items.map(item => {
+      const candidate = candidateById.get(item.sourceCandidateId);
+      return candidate ? {
+        ...item,
+        sourceDocumentId: candidate.documentId,
+        sourceQuote: candidate.quote,
+        sourceTitle: candidate.sourceTitle,
+        sourceUrl: candidate.sourceUrl,
+      } : item;
+    }),
+  };
 }
 
 function roleplayItemBlock(item) {

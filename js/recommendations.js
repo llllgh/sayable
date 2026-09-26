@@ -20,6 +20,7 @@ import {
   recommendationProgress,
   selectRemainingRecommendation,
 } from '../src/core/recommendations.ts';
+import { termCategoryLabel } from '../src/core/learning-items.ts';
 
 let generationPromise = null;
 
@@ -99,6 +100,7 @@ function mountPractice(app, recommendation) {
   if (!item) {
     item = S.addItem({
       kind: recommendation.kind,
+      termCategory: recommendation.termCategory,
       skeleton: recommendation.skeleton,
       zh: recommendation.zh,
       lemma: recommendation.lemma,
@@ -116,8 +118,8 @@ function mountPractice(app, recommendation) {
         brief: recommendation.drill.brief,
         target_zh: recommendation.drill.target_zh,
       },
-      srcKind: 'recommendation',
-      raw: '',
+      srcKind: recommendation.sourceCandidateId ? 'source' : 'recommendation',
+      raw: recommendation.sourceQuote || '',
     });
   }
 
@@ -136,7 +138,7 @@ function mountPractice(app, recommendation) {
     trigger: recommendation.trigger,
   }, {
     label: recommendation.kind === 'term'
-      ? '今日专业词汇 · 场景练习'
+      ? `今日${termCategoryLabel(recommendation.termCategory)} · 场景练习`
       : '今日推荐 · 深入练习',
     referenceAnswer: recommendation.drill.answer,
     sessionSource: 'recommendation',
@@ -201,7 +203,7 @@ function renderExpiredPractice(app, context) {
     trigger: session.cue.trigger || item.trigger || '',
   }, {
     label: item.kind === 'term'
-      ? '跨日恢复 · 专业词汇'
+      ? `跨日恢复 · ${termCategoryLabel(item.termCategory)}`
       : '跨日恢复 · 表达练习',
     referenceAnswer: recommendation?.drill?.answer || item.seeds?.[0] || '',
     sessionSource: 'recommendation',
@@ -282,7 +284,9 @@ function renderDeck(app, deck) {
           ? '加入词汇并练习'
           : '加入表达库并练习'
         : '收录并练习 · 复习顺延';
-  const kindLabel = recommendation.kind === 'term' ? '专业词汇' : '表达';
+  const kindLabel = recommendation.kind === 'term'
+    ? termCategoryLabel(recommendation.termCategory)
+    : '表达';
 
   app.innerHTML = `<div class="view stack recommendation-view">
     ${headerHTML()}
@@ -322,6 +326,11 @@ function renderDeck(app, deck) {
         <h2 class="eyebrow">什么时候用</h2>
         <p class="zh">${esc(recommendation.trigger)}</p>
       </section>
+      ${recommendation.sourceCandidateId ? `<section class="recommendation-fit recommendation-source">
+        <h2 class="eyebrow">原文出处</h2>
+        <p class="en">${esc(recommendation.sourceQuote)}</p>
+        <p class="tiny">${esc(recommendation.sourceTitle)}</p>
+      </section>` : ''}
 
     <div class="recommendation-progress" aria-hidden="true">
       ${remaining.map((_, itemIndex) => `<i class="${itemIndex === position ? 'on' : ''}"></i>`).join('')}
@@ -416,7 +425,7 @@ function renderStart(app) {
     ${headerHTML()}
     <section class="today-finish recommendation-start">
       <h2 class="zh">准备今天的 5 个学习单元</h2>
-      <p class="zh">以表达为主；有合适内容时加入 1 个专业词汇，并在新情境中练习。</p>
+      <p class="zh">以表达为主，搭配 1 个适合你的词汇；生活用语按学习偏好推荐。</p>
       <button class="btn btn-pri" id="recommend-start">开始今日推荐</button>
     </section>
   </div>`;

@@ -8,6 +8,7 @@ import { esc, skel, $, $$, toast, openSheet, closeSheet, ago, inWords, words, la
 import { buildJudgementFeedback } from '../src/core/judgement.ts';
 import { recommendationProgress } from '../src/core/recommendations.ts';
 import { reviewSupport } from '../src/core/review-support.ts';
+import { termCategoryLabel } from '../src/core/learning-items.ts';
 import {
   buildReviewCue,
   hasSpecificReviewCue,
@@ -109,7 +110,7 @@ export function drillCard(it, cue, opts = {}) {
       </div>` : ''}
       <p class="dim zh drill-instruction">${guided
         ? isTerm
-          ? '参考词汇和搭配，在当前工作场景中完整说一句。'
+          ? `参考词汇和搭配，在当前${it.termCategory === 'everyday' ? '生活' : '真实'}场景中完整说一句。`
           : '参考上面的表达，完整说出一句即可。'
         : isTerm
           ? '现在不显示目标词汇，按中文场景完整说一句。'
@@ -318,6 +319,8 @@ export function drillCard(it, cue, opts = {}) {
             event.currentTarget.textContent = '正在检查…';
             try {
               const revised = await L.judge({
+                kind: it.kind,
+                termCategory: it.termCategory,
                 skeleton: it.skeleton,
                 zh: it.zh,
                 brief: activeCue.brief,
@@ -465,6 +468,7 @@ export function drillCard(it, cue, opts = {}) {
       try {
         r = await L.judge({
           kind: it.kind,
+          termCategory: it.termCategory,
           skeleton: it.skeleton,
           zh: it.zh,
           brief: activeCue.brief,
@@ -1043,7 +1047,7 @@ function renderCaptureResult(out, r, raw, app) {
       </div>
     </details>` : ''}
 
-    ${p ? `<div class="sec"><span class="eyebrow">${admission === 'reuse' ? '关联已有内容' : p.kind === 'term' ? '专业词汇' : '核心句型'}</span><hr/></div>
+    ${p ? `<div class="sec"><span class="eyebrow">${admission === 'reuse' ? '关联已有内容' : p.kind === 'term' ? termCategoryLabel(p.termCategory) : '核心句型'}</span><hr/></div>
     <div class="card acc">
       <p class="skel en">${skel(p.skeleton)} <button class="link" id="say-sk" style="margin-left:6px">朗读</button></p>
       <p class="zh" style="margin-top:5px;color:var(--fg-2);font-size:13.5px">${esc(p.zh)}</p>
@@ -1149,6 +1153,7 @@ function renderCaptureResult(out, r, raw, app) {
       ? reusedItem
       : S.addItem({
         kind: p.kind,
+        termCategory: p.termCategory,
         skeleton: p.skeleton,
         zh: p.zh,
         lemma: p.lemma,
@@ -1247,7 +1252,7 @@ export function itemSheet(id) {
   const relatedExpressions = isTerm
     ? (i.relatedExpressionIds || []).map(S.getItem).filter(Boolean)
     : [];
-  openSheet(isTerm ? '词汇详情' : '表达详情', `
+  openSheet(isTerm ? `${termCategoryLabel(i.termCategory)}详情` : '表达详情', `
     <p class="skel en" style="font-size:21px">${skel(i.skeleton)} <button class="link" id="is-say">朗读</button></p>
     <p class="zh sub" style="margin-top:5px">${esc(i.zh)}</p>
     ${isTerm && i.collocations?.length ? `<div style="margin-top:13px">

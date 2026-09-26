@@ -64,6 +64,13 @@ describe('persisted state migration', () => {
         compression: emptyToolTask(),
         preflight: emptyToolTask(),
       },
+      sourceDraft: {
+        title: '',
+        sourceUrl: '',
+        body: '',
+      },
+      sourceDocuments: [],
+      sourceCandidates: [],
       practiceSessions: [],
       roleplaySessions: [],
       dailyRecommendations: null,
@@ -121,6 +128,7 @@ describe('persisted state migration', () => {
       upcoming: '',
       variety: 'international',
       englishLevel: null,
+      everydayVocabulary: false,
     });
     expect(migrated.items).toEqual([{
       ...userItem,
@@ -427,13 +435,14 @@ describe('persisted state migration', () => {
       ],
     }) as Record<string, any>;
 
-    expect(migrated.formatVersion).toBe(12);
+    expect(migrated.formatVersion).toBe(CURRENT_STATE_FORMAT_VERSION);
     expect(migrated.items[0]).toMatchObject({
       kind: 'expression',
       skeleton: 'move from X to Y',
     });
     expect(migrated.items[1]).toMatchObject({
       kind: 'term',
+      termCategory: 'professional',
       skeleton: 'latency',
       zh: '系统响应请求所需的延迟时间',
       lemma: 'latency',

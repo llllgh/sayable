@@ -32,6 +32,19 @@ describe('practice experience', () => {
     expect(llm).toContain('英语水平：${englishLevelLabel');
   });
 
+  it('only enables everyday vocabulary recommendations by explicit preference', () => {
+    const profileView = readFileSync('js/views2.js', 'utf8');
+    const llm = readFileSync('js/llm.js', 'utf8');
+
+    expect(profileView).toContain('id="p-everyday-vocabulary"');
+    expect(profileView).toContain(
+      "everydayVocabulary: $('#p-everyday-vocabulary').checked",
+    );
+    expect(llm).toContain(
+      'allowEverydayTerms: Boolean(state.profile.everydayVocabulary)',
+    );
+  });
+
   it('lets related expressions be spoken, collected, and practiced', () => {
     const source = readFileSync('js/views.js', 'utf8');
 

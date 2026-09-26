@@ -50,6 +50,15 @@ describe('expression library search and record states', () => {
     expect(expressionMatchesQuery(item, '软件架构')).toBe(true);
   });
 
+  it('searches vocabulary by its visible category', () => {
+    expect(expressionMatchesQuery({
+      kind: 'term',
+      termCategory: 'everyday',
+      lemma: 'chipped',
+      sense: '边缘缺了一小块',
+    }, '生活用语')).toBe(true);
+  });
+
   it('maps legacy done records to pending review and keeps handled records out of attention', () => {
     expect(normalizeRecordStatus('done')).toBe('ready');
     expect(normalizeRecordStatus('unknown')).toBe('raw');

@@ -9,7 +9,10 @@ import {
   recommendationProgress,
   selectRemainingRecommendation,
 } from '../src/core/recommendations';
-import { recommendationSchema } from '../src/llm/schemas';
+import {
+  recommendationSchema,
+  recommendationSchemaFor,
+} from '../src/llm/schemas';
 
 function candidates(count = 5) {
   return Array.from({ length: count }, (_, index) => ({
@@ -32,6 +35,7 @@ function candidates(count = 5) {
 function termCandidate(overrides = {}) {
   return {
     kind: 'term',
+    termCategory: 'professional',
     skeleton: 'latency',
     zh: '系统响应请求所需的延迟时间',
     lemma: 'latency',
@@ -152,6 +156,64 @@ describe('daily recommendations', () => {
     }).success).toBe(false);
   });
 
+  it('admits precise writing terms without fake domain tags', () => {
+    const precise = termCandidate({
+      termCategory: 'precision',
+      skeleton: 'mitigate',
+      lemma: 'mitigate',
+      sense: '缓解或降低不利影响',
+      collocations: ['mitigate risk', 'mitigate the impact'],
+      anchorSentence: 'A staged rollout can mitigate the operational risk.',
+      domainTags: [],
+      example: 'A staged rollout can mitigate the operational risk.',
+      example_zh: '分阶段上线可以降低运营风险。',
+      drill: {
+        brief: '在邮件中说明提前校验可以减少迁移风险',
+        target_zh: '提前校验可以降低数据迁移带来的风险。',
+        answer: 'Early validation can mitigate the risks of data migration.',
+      },
+      register: 'email',
+    });
+
+    expect(recommendationSchema.safeParse({
+      items: [...candidates(4), precise],
+    }).success).toBe(true);
+  });
+
+  it('requires an explicit preference before admitting everyday vocabulary', () => {
+    const everyday = termCandidate({
+      termCategory: 'everyday',
+      skeleton: 'chipped',
+      lemma: 'chipped',
+      sense: '边缘缺了一小块',
+      collocations: ['a chipped mug', 'slightly chipped'],
+      anchorSentence: 'This bowl is chipped along the rim.',
+      domainTags: [],
+      example: 'This bowl is chipped along the rim.',
+      example_zh: '这个碗的边缘缺了一小块。',
+      drill: {
+        brief: '在酒店说明房间里的杯子有缺口',
+        target_zh: '房间里的杯子边缘有一个缺口。',
+        answer: 'The mug in the room is chipped along the rim.',
+      },
+      register: 'casual',
+    });
+    const items = [...candidates(4), everyday];
+
+    expect(recommendationSchema.safeParse({ items }).success).toBe(false);
+    expect(recommendationSchemaFor({ allowEverydayTerms: true })
+      .safeParse({ items }).success).toBe(true);
+    expect(() => createDailyRecommendationDeck({
+      items,
+      idFactory: () => crypto.randomUUID(),
+    })).toThrow('生活用语推荐需要先在学习偏好中开启');
+    expect(createDailyRecommendationDeck({
+      items,
+      idFactory: () => crypto.randomUUID(),
+      allowEverydayTerms: true,
+    }).items.some(item => item.termCategory === 'everyday')).toBe(true);
+  });
+
   it('normalizes imported decks and clamps their current card', () => {
     const deck = normalizeDailyRecommendationDeck({
       date: '2026-09-01',
@@ -250,6 +312,46 @@ describe('daily recommendations', () => {
       .toBe(false);
   });
 
+  it('requires and preserves a valid long-text candidate when one is available', () => {
+    const sourceCandidate = {
+      id: 'source-candidate-1',
+      kind: 'expression',
+      skeleton: candidates()[0].skeleton,
+    };
+    const sourced: Array<Record<string, any>> = candidates();
+    sourced[0] = {
+      ...sourced[0],
+      sourceCandidateId: sourceCandidate.id,
+    };
+    const schema = recommendationSchemaFor({
+      sourceCandidates: [sourceCandidate],
+    });
+
+    expect(schema.safeParse({ items: sourced }).success).toBe(true);
+    expect(schema.safeParse({ items: candidates() }).success).toBe(false);
+    expect(schema.safeParse({
+      items: sourced.map((item, index) => index === 0
+        ? { ...item, skeleton: 'a different X from Y' }
+        : item),
+    }).success).toBe(false);
+
+    const deck = createDailyRecommendationDeck({
+      items: [{
+        ...sourced[0],
+        sourceDocumentId: 'source-document-1',
+        sourceQuote: 'We should shift priority 0 from speed to reliability.',
+        sourceTitle: 'Architecture discussion',
+        sourceUrl: 'https://example.com/source',
+      }, ...sourced.slice(1)],
+      idFactory: () => crypto.randomUUID(),
+    });
+    expect(deck.items.find(item => item.sourceCandidateId)).toMatchObject({
+      sourceCandidateId: 'source-candidate-1',
+      sourceDocumentId: 'source-document-1',
+      sourceTitle: 'Architecture discussion',
+    });
+  });
+
   it('keeps the route, swipe controls, and collection path wired', () => {
     const main = readFileSync('js/main.js', 'utf8');
     const home = readFileSync('js/views.js', 'utf8');
@@ -260,7 +362,8 @@ describe('daily recommendations', () => {
     expect(main).toContain('recommend: viewRecommendations');
     expect(home).toContain('data-today-mode="recommendation"');
     expect(view).toContain("card.addEventListener('pointerup'");
-    expect(view).toContain("srcKind: 'recommendation'");
+    expect(view).toContain("recommendation.sourceCandidateId ? 'source' : 'recommendation'");
+    expect(view).toContain('recommendation.sourceQuote');
     expect(view).toContain("recommendation.kind === 'term'");
     expect(view).toContain('collocations: recommendation.collocations');
     expect(view).toContain('drillCard(item');

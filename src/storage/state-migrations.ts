@@ -14,8 +14,12 @@ import { normalizePracticeSession } from '../core/practice-session';
 import { normalizeRecordStatus } from '../core/library';
 import { normalizeToolTasks } from '../core/tool-tasks';
 import { normalizeLearningItem } from '../core/learning-items';
+import {
+  normalizeSourceCandidates,
+  normalizeSourceDocuments,
+} from '../core/source-import';
 
-export const CURRENT_STATE_FORMAT_VERSION = 12;
+export const CURRENT_STATE_FORMAT_VERSION = 13;
 
 type JsonRecord = Record<string, unknown>;
 
@@ -41,6 +45,7 @@ const EMPTY_PROFILE = {
   upcoming: '',
   variety: 'international',
   englishLevel: null,
+  everydayVocabulary: false,
 };
 
 function isRecord(value: unknown): value is JsonRecord {
@@ -203,6 +208,15 @@ export function migratePersistedState(input: unknown): unknown {
     compressions,
     drafts: migrateDrafts(input.drafts, input.draft),
     toolTasks: normalizeToolTasks(input.toolTasks),
+    sourceDraft: isRecord(input.sourceDraft)
+      ? {
+        title: String(input.sourceDraft.title ?? ''),
+        sourceUrl: String(input.sourceDraft.sourceUrl ?? ''),
+        body: String(input.sourceDraft.body ?? ''),
+      }
+      : { title: '', sourceUrl: '', body: '' },
+    sourceDocuments: normalizeSourceDocuments(input.sourceDocuments),
+    sourceCandidates: normalizeSourceCandidates(input.sourceCandidates),
     practiceSessions: (Array.isArray(input.practiceSessions)
       ? input.practiceSessions
       : [])

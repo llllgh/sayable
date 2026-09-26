@@ -15,6 +15,7 @@ import {
   viewCompress,
   viewLibrary,
   viewPreflight,
+  viewSourceImport,
 } from './views2.js';
 import { viewRecommendations } from './recommendations.js';
 import { viewRoleplay } from './roleplay.js';
@@ -39,6 +40,7 @@ async function start() {
 const ROUTES = {
   home: viewHome, capture: viewCapture, compress: viewCompress,
   preflight: viewPreflight, library: viewLibrary,
+  source: viewSourceImport,
   recommend: viewRecommendations,
 };
 

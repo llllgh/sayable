@@ -1,6 +1,10 @@
+import { termCategoryLabel } from './learning-items';
+
 export type RecordStatus = 'raw' | 'analyzing' | 'ready' | 'failed' | 'handled';
 
 interface SearchableExpression {
+  kind?: unknown;
+  termCategory?: unknown;
   skeleton?: unknown;
   zh?: unknown;
   lemma?: unknown;
@@ -54,6 +58,7 @@ export function expressionMatchesQuery(
     item.collocations,
     item.anchorSentence,
     item.domainTags,
+    item.kind === 'term' ? termCategoryLabel(item.termCategory) : '',
     item.source?.raw,
     item.seeds,
   ]).includes(term);

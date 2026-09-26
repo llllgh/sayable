@@ -1,7 +1,7 @@
 /* =========================================================================
    store.js — 数据模型 / 持久化 / 调度
    设计原则（与实习生方案的关键差异）：
-   1) 学习单元 = 可复用「骨架」，不是句子、不是单词。
+   1) 学习单元 = 可复用表达组件，不是孤立句子或词义卡。
    2) 调度刻意做「笨」：固定阶梯 0/1/3/7/21/60 天。个人句库的量级下，
       精调 FSRS 的收益远小于它带来的不可校准的魔法参数成本。
    3) 「已内化(owned)」必须有真实场景使用证据，模型打分不能单独授予。
@@ -85,6 +85,17 @@ import {
   emptyToolTask,
   normalizeToolTasks,
 } from '../src/core/tool-tasks.ts';
+import {
+  chunkSourceText,
+  normalizeSourceCandidate,
+  normalizeSourceCandidates,
+  normalizeSourceDocuments,
+  normalizeSourceText,
+  pendingSourceCandidates,
+  sourceCandidateGrounded,
+  sourceCandidateKey,
+  sourceTextIssue,
+} from '../src/core/source-import.ts';
 
 const KEY = 'sayable.v1';
 const WEEK = 7 * 864e5;
@@ -103,7 +114,7 @@ export const state = {
   profile: {
     name: '', role: '', org: '', goal: '',
     domains: [], counterparts: [], scenarios: [], upcoming: '',
-    variety: 'international', englishLevel: null,
+    variety: 'international', englishLevel: null, everydayVocabulary: false,
   },
   items: /** @type {any[]} */ ([]),
   inbox: /** @type {any[]} */ ([]), // 闪存：只存原文，不分析、不联网、不问问题
@@ -117,6 +128,13 @@ export const state = {
   notificationReplies: /** @type {any[]} */ ([]),
   compressions: /** @type {any[]} */ ([]),
   toolTasks: normalizeToolTasks(null),
+  sourceDraft: {
+    title: '',
+    sourceUrl: '',
+    body: '',
+  },
+  sourceDocuments: /** @type {any[]} */ ([]),
+  sourceCandidates: /** @type {any[]} */ ([]),
   practiceSessions: /** @type {any[]} */ ([]),
   roleplaySessions: /** @type {any[]} */ ([]),
   dailyRecommendations: null,
@@ -173,6 +191,9 @@ function persistableState() {
     notificationReplies: state.notificationReplies,
     compressions: state.compressions,
     toolTasks: state.toolTasks,
+    sourceDraft: state.sourceDraft,
+    sourceDocuments: state.sourceDocuments,
+    sourceCandidates: state.sourceCandidates,
     practiceSessions: state.practiceSessions,
     roleplaySessions: state.roleplaySessions,
     dailyRecommendations: state.dailyRecommendations,
@@ -183,6 +204,7 @@ function persistableState() {
 
 function hydrate(d) {
   Object.assign(state.profile, d?.profile || {});
+  state.profile.everydayVocabulary = state.profile.everydayVocabulary === true;
   Object.assign(state.settings, d?.settings || {});
   state.settings.serviceRegion = normalizeServiceRegion(state.settings.serviceRegion);
   state.settings.voiceMode = normalizeVoiceMode(state.settings.voiceMode);
@@ -222,6 +244,16 @@ function hydrate(d) {
   state.notificationReplies = Array.isArray(d?.notificationReplies) ? d.notificationReplies : [];
   state.compressions = Array.isArray(d?.compressions) ? d.compressions : [];
   state.toolTasks = normalizeToolTasks(d?.toolTasks);
+  state.sourceDraft = {
+    title: String(d?.sourceDraft?.title || ''),
+    sourceUrl: String(d?.sourceDraft?.sourceUrl || ''),
+    body: String(d?.sourceDraft?.body || ''),
+  };
+  state.sourceDocuments = normalizeSourceDocuments(d?.sourceDocuments);
+  state.sourceCandidates = normalizeSourceCandidates(d?.sourceCandidates)
+    .filter(candidate => state.sourceDocuments.some(
+      document => document.id === candidate.documentId,
+    ));
   state.practiceSessions = Array.isArray(d?.practiceSessions)
     ? d.practiceSessions
       .map(normalizePracticeSession)
@@ -497,6 +529,7 @@ export const TRUST_BY_SRC = {
   preflight: 1,
   compress: 2,
   recommendation: 1,
+  source: 3,
 };
 
 export function makeItem(o) {
@@ -504,6 +537,7 @@ export function makeItem(o) {
   return normalizeLearningItem({
     id: uid(),
     kind: normalizeLearningItemKind(o.kind),
+    termCategory: o.termCategory,
     skeleton: o.skeleton,           // "The bottleneck has shifted from X to Y"
     zh: o.zh || '',
     lemma: o.lemma || '',
@@ -802,6 +836,151 @@ export function resetToolTask(kind, input = '') {
   save();
   return state.toolTasks[kind];
 }
+
+/* ---------------- 长文本来源与候选池 ---------------- */
+export function updateSourceDraft(next = {}) {
+  state.sourceDraft = {
+    title: String(next.title ?? state.sourceDraft.title ?? ''),
+    sourceUrl: String(next.sourceUrl ?? state.sourceDraft.sourceUrl ?? ''),
+    body: String(next.body ?? state.sourceDraft.body ?? ''),
+  };
+  save();
+  return state.sourceDraft;
+}
+
+export function createSourceDocument(input = {}) {
+  const body = normalizeSourceText(input.body);
+  const issue = sourceTextIssue(body);
+  if (issue) throw new Error(issue);
+  const sourceUrl = String(input.sourceUrl || '').trim();
+  if (sourceUrl && !/^https?:\/\//iu.test(sourceUrl)) {
+    throw new Error('出处链接需要以 http:// 或 https:// 开头');
+  }
+  const chunks = chunkSourceText(body);
+  const createdAt = now();
+  const document = {
+    id: uid(),
+    title: String(input.title || '').trim() || '未命名来源',
+    sourceUrl,
+    body,
+    status: 'processing',
+    chunkCount: chunks.length,
+    nextChunkIndex: 0,
+    candidateCount: 0,
+    error: '',
+    createdAt,
+    updatedAt: createdAt,
+  };
+  state.sourceDocuments.unshift(document);
+  state.sourceDraft = { title: '', sourceUrl: '', body: '' };
+  track('source_import_started', document.id);
+  save();
+  return document;
+}
+
+export function getSourceDocument(id) {
+  return state.sourceDocuments.find(document => document.id === id) || null;
+}
+
+export function sourceDocumentChunk(id, index) {
+  const document = getSourceDocument(id);
+  if (!document) return '';
+  return chunkSourceText(document.body)[index] || '';
+}
+
+export function resumeSourceDocument(id) {
+  const document = getSourceDocument(id);
+  if (!document || document.status === 'ready') return document;
+  document.status = 'processing';
+  document.error = '';
+  document.updatedAt = now();
+  save();
+  return document;
+}
+
+export function completeSourceChunk(id, chunkIndex, values) {
+  const document = getSourceDocument(id);
+  if (!document) throw new Error('找不到这篇来源');
+  const expected = Math.max(0, Number(document.nextChunkIndex) || 0);
+  if (chunkIndex < expected) return document;
+  if (chunkIndex !== expected) throw new Error('分块进度不一致，请重试');
+
+  const known = new Set([
+    ...state.items.map(sourceCandidateKey),
+    ...state.sourceCandidates.map(sourceCandidateKey),
+  ].filter(Boolean));
+  const sourceChunk = sourceDocumentChunk(document.id, chunkIndex);
+  for (const value of Array.isArray(values) ? values : []) {
+    if (!sourceCandidateGrounded(value, sourceChunk)) continue;
+    const candidate = normalizeSourceCandidate({
+      ...value,
+      id: uid(),
+      documentId: document.id,
+      chunkIndex,
+      sourceTitle: document.title,
+      sourceUrl: document.sourceUrl,
+      createdAt: now(),
+    });
+    const key = sourceCandidateKey(candidate);
+    if (!candidate || !key || known.has(key)) continue;
+    known.add(key);
+    state.sourceCandidates.push(candidate);
+  }
+
+  document.nextChunkIndex = Math.min(document.chunkCount, chunkIndex + 1);
+  document.candidateCount = state.sourceCandidates.filter(
+    candidate => candidate.documentId === document.id,
+  ).length;
+  document.status = document.nextChunkIndex >= document.chunkCount
+    ? 'ready'
+    : 'processing';
+  document.error = '';
+  document.updatedAt = now();
+  if (document.status === 'ready') track('source_import_completed', document.id);
+  save();
+  return document;
+}
+
+export function failSourceDocument(id, error) {
+  const document = getSourceDocument(id);
+  if (!document) return null;
+  document.status = 'failed';
+  document.error = String(error || '提炼失败，请重试');
+  document.updatedAt = now();
+  track('source_import_failed', document.id);
+  save();
+  return document;
+}
+
+export function deleteSourceDocument(id) {
+  state.sourceDocuments = state.sourceDocuments.filter(
+    document => document.id !== id,
+  );
+  state.sourceCandidates = state.sourceCandidates.filter(
+    candidate => candidate.documentId !== id,
+  );
+  save();
+}
+
+export function pendingSourceCandidatePool(limit = 12) {
+  return pendingSourceCandidates({
+    candidates: state.sourceCandidates,
+    existingItems: state.items,
+    allowEverydayTerms: Boolean(state.profile.everydayVocabulary),
+    limit,
+  });
+}
+
+export function sourcePoolStats() {
+  const available = pendingSourceCandidatePool(state.sourceCandidates.length || 1);
+  return {
+    sources: state.sourceDocuments.length,
+    candidates: state.sourceCandidates.length,
+    pending: available.length,
+    used: state.sourceCandidates.filter(candidate => candidate.consumedAt).length,
+  };
+}
+
 export function addNotificationReplies(replies) {
   const known = new Set(state.notificationReplies.map(reply => `${reply.itemId}:${reply.receivedAt}`));
   for (const reply of replies) {
@@ -884,7 +1063,18 @@ export async function saveDailyRecommendations(items) {
   const deck = createDailyRecommendationDeck({
     items,
     idFactory: uid,
+    allowEverydayTerms: Boolean(state.profile.everydayVocabulary),
   });
+  const consumedAt = now();
+  for (const card of deck.items) {
+    if (!card.sourceCandidateId) continue;
+    const candidate = state.sourceCandidates.find(
+      entry => entry.id === card.sourceCandidateId,
+    );
+    if (!candidate || candidate.consumedAt) continue;
+    candidate.consumedAt = consumedAt;
+    candidate.recommendationId = card.id;
+  }
   state.dailyRecommendations = deck;
   track('recommendations_generated');
   await save();

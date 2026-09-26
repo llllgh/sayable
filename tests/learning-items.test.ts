@@ -1,8 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import {
   isProfessionalTermCandidate,
+  isTermCandidate,
   learningItemKey,
   normalizeLearningItem,
+  termCategoryLabel,
   termAppearsInSentence,
 } from '../src/core/learning-items';
 import { buildReviewCue } from '../src/core/review-cue';
@@ -39,10 +41,44 @@ describe('professional learning terms', () => {
       box: 3,
     })).toMatchObject({
       kind: 'term',
+      termCategory: 'professional',
       skeleton: 'latency',
       zh: '系统响应请求所需的延迟时间',
       box: 3,
     });
+  });
+
+  it('supports precise writing and opted-in everyday vocabulary as contextual terms', () => {
+    const precision = {
+      ...term,
+      termCategory: 'precision',
+      lemma: 'mitigate',
+      skeleton: 'mitigate',
+      sense: '缓解或降低不利影响',
+      collocations: ['mitigate risk', 'mitigate the impact'],
+      anchorSentence: 'A staged rollout can mitigate the operational risk.',
+      domainTags: [],
+    };
+    const everyday = {
+      ...term,
+      termCategory: 'everyday',
+      lemma: 'chipped',
+      skeleton: 'chipped',
+      sense: '边缘缺了一小块',
+      collocations: ['a chipped mug', 'slightly chipped'],
+      anchorSentence: 'This bowl is chipped along the rim.',
+      domainTags: [],
+    };
+
+    expect(isTermCandidate(precision)).toBe(true);
+    expect(isTermCandidate(everyday)).toBe(true);
+    expect(isProfessionalTermCandidate(precision)).toBe(false);
+    expect(termCategoryLabel('precision')).toBe('精确用词');
+    expect(termCategoryLabel('everyday')).toBe('生活用语');
+    expect(termAppearsInSentence(
+      'mitigate',
+      'The guardrail mitigated the largest risk.',
+    )).toBe(true);
   });
 
   it('requires a specific, contextualized professional term', () => {
@@ -87,5 +123,13 @@ describe('professional learning terms', () => {
         target_zh: '增加本地缓存可以降低关键接口的延迟。',
       },
     }).brief).toContain('一句工作场景英文');
+
+    expect(buildReviewCue({
+      ...term,
+      termCategory: 'everyday',
+      box: 1,
+      sense: '边缘缺了一小块',
+      drill: null,
+    }).brief).toContain('一句生活场景英文');
   });
 });
