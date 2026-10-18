@@ -54,6 +54,8 @@ export interface PracticeSettlement {
 }
 
 export interface PracticeSession {
+  learningGoal: 'production' | 'recognition';
+  goalRevision: number;
   id: string;
   itemId: string;
   source: string;
@@ -204,6 +206,8 @@ export function createPracticeSessionRecord(input: {
     id,
     itemId,
     source,
+    learningGoal: 'production',
+    goalRevision: 0,
     sourceId: text(input.sourceId).trim(),
     startedAt,
     updatedAt: startedAt,
@@ -255,6 +259,8 @@ export function normalizePracticeSession(value: unknown): PracticeSession | null
     id,
     itemId,
     source,
+    learningGoal: value.learningGoal === 'recognition' ? 'recognition' : 'production',
+    goalRevision: Number(value.goalRevision) || 0,
     sourceId: text(value.sourceId).trim(),
     startedAt: timestamp(value.startedAt),
     updatedAt: timestamp(value.updatedAt),

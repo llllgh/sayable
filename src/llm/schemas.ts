@@ -389,7 +389,12 @@ export const preflightSchema = z.object({
   avoid: z.string().catch(''),
 }).passthrough();
 
-const sourceCandidateSchema = z.object({
+const sourceCandidateSchema = z.preprocess((raw) => {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return raw;
+  const item = raw as Record<string, unknown>;
+  if (item.kind !== 'term' || typeof item.lemma !== 'string' || !item.lemma.trim()) return raw;
+  return { ...item, skeleton: item.lemma.trim() };
+}, z.object({
   kind: z.enum(['expression', 'term']).default('expression'),
   termCategory: z.enum(['professional', 'precision', 'everyday'])
     .nullable()
@@ -399,26 +404,97 @@ const sourceCandidateSchema = z.object({
   lemma: nullableText,
   sense: nullableText,
   quote: z.string().trim().min(12),
-}).passthrough();
+  suggestedGoal: z.enum(['recognition', 'production']).catch('production'),
+  goalReason: z.string().catch(''),
+}).passthrough());
 
 export function sourceExtractionSchemaFor(sourceChunk: string) {
   return z.object({
-    items: z.array(sourceCandidateSchema),
+    items: z.array(z.unknown()),
   }).passthrough().transform((value) => {
     const keys = new Set<string>();
-    const items = value.items.filter((item) => {
+    const items = value.items.flatMap(raw => {
+      const parsed = sourceCandidateSchema.safeParse(raw);
+      return parsed.success ? [parsed.data] : [];
+    }).filter((item) => {
       const key = learningItemKey(item);
       if (!key || keys.has(key)) return false;
-      keys.add(key);
       if (
-        item.kind === 'term'
-        && (!String(item.lemma || '').trim() || !String(item.sense || '').trim())
+        (item.kind === 'term'
+          && (!String(item.lemma || '').trim() || !String(item.sense || '').trim()
+            || !/[\u3400-\u9fff]/u.test(String(item.sense))))
+        || !/[\u3400-\u9fff]/u.test(item.zh)
       ) {
         return false;
       }
-      return sourceCandidateGrounded(item, sourceChunk);
+      if (!sourceCandidateGrounded(item, sourceChunk)) return false;
+      keys.add(key);
+      return true;
     });
-    return { items: items.slice(0, 8) };
+    return { items: items.slice(0, 24), filteredCount: value.items.length - Math.min(items.length, 24) };
+  });
+}
+
+export function vocabularyMaterialSchemaFor(item: any) {
+  const base = z.object({
+    usage: z.string().trim().min(1),
+    sentence: z.string().trim().min(12),
+    explanation: z.string().trim().min(1),
+    collocations: z.array(z.string()).max(4).catch([]),
+    anchorSentence: z.string().catch(''),
+    trigger: z.string().catch(''),
+    drill: z.object({
+      brief: z.string().trim().min(1),
+      target_zh: z.string().trim().min(1),
+      answer: z.string().trim().min(1),
+    }).nullable().optional(),
+  }).superRefine((material, ctx) => {
+    if (!/[\u3400-\u9fff]/u.test(material.usage) || !/[\u3400-\u9fff]/u.test(material.explanation)) {
+      ctx.addIssue({ code: 'custom', message: '用法与理解解释必须使用中文' });
+    }
+    const target = item.lemma || item.skeleton;
+    const sources = [item.source?.raw, item.anchorSentence].filter(Boolean);
+    if (sources.some(source => !drillDiffersFromExample(material.sentence, String(source)))) {
+      ctx.addIssue({ code: 'custom', message: '理解检查必须更换语境' });
+    }
+    if (item.kind === 'term' && !termAppearsInSentence(target, material.sentence)) {
+      ctx.addIssue({ code: 'custom', message: '新语境没有使用目标词' });
+    }
+    if (item.learningGoal !== 'recognition') {
+      if (!material.drill || (item.kind === 'term' && material.collocations.length < 2)) {
+        ctx.addIssue({ code: 'custom', message: '产出材料缺少搭配或迁移练习' });
+      } else {
+        if (/[A-Za-z]/u.test(material.drill.brief + material.drill.target_zh + material.trigger)) {
+          ctx.addIssue({ code: 'custom', message: '迁移任务和触发时机必须使用中文，不泄露英文答案' });
+        }
+        if (item.kind === 'term' && !termAppearsInSentence(target, material.drill.answer)) {
+          ctx.addIssue({ code: 'custom', message: '参考答案没有使用目标词' });
+        }
+        if (item.kind !== 'term' && !skeletonAnchoredInExpression(String(target), material.drill.answer)) {
+          ctx.addIssue({ code: 'custom', message: '迁移答案没有实例化目标骨架' });
+        }
+        for (const source of [...sources, material.anchorSentence].filter(Boolean)) {
+          if (!drillDiffersFromExample(material.drill.answer, String(source))) {
+            ctx.addIssue({ code: 'custom', message: '产出练习必须更换场景' });
+          }
+        }
+      }
+    }
+  });
+  return base.transform(material => item.learningGoal === 'recognition'
+    ? { ...material, collocations: [], drill: null }
+    : material);
+}
+
+export function manualVocabularySchemaFor(quote: string, selected: string) {
+  return sourceCandidateSchema.superRefine((item, ctx) => {
+    if (item.kind !== 'term' || !sourceCandidateGrounded(item, quote)
+      || !termAppearsInSentence(item.lemma, selected) || !termAppearsInSentence(selected, item.quote)) {
+      ctx.addIssue({ code: 'custom', message: '选词解释必须绑定所选词与原句' });
+    }
+    if (!/[\u3400-\u9fff]/u.test(String(item.sense)) || !/[\u3400-\u9fff]/u.test(item.zh)) {
+      ctx.addIssue({ code: 'custom', message: '当前义项必须使用中文，不能用英文词典定义' });
+    }
   });
 }
 

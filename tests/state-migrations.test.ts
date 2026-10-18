@@ -71,6 +71,8 @@ describe('persisted state migration', () => {
       },
       sourceDocuments: [],
       sourceCandidates: [],
+      vocabularyTasks: [],
+      recognitionSessions: [],
       practiceSessions: [],
       roleplaySessions: [],
       dailyRecommendations: null,

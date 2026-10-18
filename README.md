@@ -9,6 +9,12 @@ Android 包名、数据库名和安全存储前缀保持原值；显示名称统
 
 ## 安装 Android 版
 
+当前版本：[Locue Android v0.4.6](https://github.com/llllgh/sayable/releases/tag/v0.4.6)。
+可直接[下载已签名 APK](https://github.com/llllgh/sayable/releases/download/v0.4.6/app-release.apk)，覆盖安装既有 Release 版。
+
+本版支持从长文本导入后挑选词汇，按“看懂即可”或“希望会用”立即学习和复习。
+自动化与真实模型词汇回归已通过；完整 Android 词汇交互、v14 设备覆盖升级和隔日学习观察仍待验收，详情见发布说明。
+
 已签名的 APK：
 
 `android/app/build/outputs/apk/release/app-release.apk`

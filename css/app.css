@@ -812,3 +812,15 @@ ins.judgement-diff-change{background:#D9EEE9;color:var(--acc-d)}
 @media (prefers-reduced-motion:reduce){
   *,*::before,*::after{animation-duration:.01ms!important;animation-iteration-count:1!important;transition-duration:.01ms!important;scroll-behavior:auto!important}
 }
+
+/* Vocabulary uses the existing single-column learning layout. */
+.vocabulary-candidates{display:grid;gap:0}
+.vocabulary-candidate{padding:16px 0;border-bottom:1px solid var(--line,#dde3e5)}
+.vocabulary-candidate .row{align-items:start;gap:12px}
+.vocabulary-candidate .grow{min-width:0}
+.vocabulary-candidate select{width:112px;flex-shrink:0;font-size:13px}
+.vocabulary-candidate details{margin-top:9px}
+.vocabulary-candidate summary,.vocabulary-source summary,.recognition-card summary{cursor:pointer;font-size:13px}
+.vocabulary-candidate .quote,.recognition-card .quote{margin-top:12px}
+.vocabulary-source .selectable{user-select:text!important;-webkit-user-select:text!important;white-space:pre-wrap;max-height:420px;overflow:auto;margin:12px 0}
+.vocabulary-selection-footer{border-top:1px solid var(--line,#dde3e5);padding-top:16px}

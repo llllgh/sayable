@@ -37,8 +37,10 @@ const RecallNotifications = registerPlugin<NativeRecallNotificationsPlugin>(
 export interface RecallItem {
   id: string;
   zh: string;
-  dueAt: number;
+  dueAt: number | null;
   status: string;
+  learningGoal?: string;
+  learningStarted?: boolean;
 }
 
 export interface NotificationSettings {
@@ -139,7 +141,7 @@ export async function showTestRecall(item: RecallItem): Promise<boolean> {
   if (!(await requestNotificationPermission())) return false;
   await RecallNotifications.showTest({
     itemId: item.id,
-    body: `「${item.zh}」怎么说？`,
+    body: item.learningGoal === 'recognition' ? '到期词汇，换个语境检查是否看懂。' : `「${item.zh}」怎么说？`,
   });
   return true;
 }
@@ -164,8 +166,9 @@ export async function rescheduleRecallNotifications(
   if (permission.display !== 'granted') return 0;
 
   const active = items
-    .filter((item) => item.status !== 'retired')
-    .sort((left, right) => left.dueAt - right.dueAt);
+    .filter((item) => item.status !== 'retired' && item.status !== 'familiar'
+      && item.learningStarted !== false && Number.isFinite(item.dueAt))
+    .sort((left, right) => Number(left.dueAt) - Number(right.dueAt));
   const notifications: LocalNotificationSchema[] = [];
 
   for (let day = 0, slot = 0; day < DAYS_TO_SCHEDULE; day += dayStride, slot += 1) {
@@ -176,13 +179,13 @@ export async function rescheduleRecallNotifications(
       settings.quietStart,
       settings.quietEnd,
     );
-    const due = active.filter((item) => item.dueAt <= scheduleAt.getTime());
+    const due = active.filter((item) => Number(item.dueAt) <= scheduleAt.getTime());
     if (!due.length) continue;
     const item = due[slot % due.length];
     notifications.push({
       id: FIRST_NOTIFICATION_ID + day,
       title: 'Locue',
-      body: `「${item.zh}」怎么说？`,
+      body: item.learningGoal === 'recognition' ? '到期词汇，换个语境检查是否看懂。' : `「${item.zh}」怎么说？`,
       schedule: {
         at: scheduleAt,
         allowWhileIdle: true,

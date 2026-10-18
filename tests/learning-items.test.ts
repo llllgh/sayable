@@ -101,7 +101,8 @@ describe('professional learning terms', () => {
       kind: 'expression',
       skeleton: 'Latency',
     })).toBe('expression:latency');
-    expect(learningItemKey(term)).toBe('term:latency');
+    expect(learningItemKey(term)).toBe(`term:latency:${term.sense}`);
+    expect(learningItemKey({ ...term, sense: '其他义项' })).not.toBe(learningItemKey(term));
   });
 
   it('teaches a term through collocations and a full scenario sentence', () => {

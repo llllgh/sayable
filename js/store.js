@@ -96,6 +96,10 @@ import {
   sourceCandidateKey,
   sourceTextIssue,
 } from '../src/core/source-import.ts';
+import {
+  emptyRecognition, nextRecognition, normalizeLearningGoal,
+  normalizeVocabularyTask, normalizeRecognitionSession,
+} from '../src/core/vocabulary.ts';
 
 const KEY = 'sayable.v1';
 const WEEK = 7 * 864e5;
@@ -135,6 +139,9 @@ export const state = {
   },
   sourceDocuments: /** @type {any[]} */ ([]),
   sourceCandidates: /** @type {any[]} */ ([]),
+  vocabularyTasks: /** @type {any[]} */ ([]),
+  recognitionSessions: /** @type {any[]} */ ([]),
+  vocabularyView: null,
   practiceSessions: /** @type {any[]} */ ([]),
   roleplaySessions: /** @type {any[]} */ ([]),
   dailyRecommendations: null,
@@ -194,6 +201,9 @@ function persistableState() {
     sourceDraft: state.sourceDraft,
     sourceDocuments: state.sourceDocuments,
     sourceCandidates: state.sourceCandidates,
+    vocabularyTasks: state.vocabularyTasks,
+    recognitionSessions: state.recognitionSessions,
+    vocabularyView: state.vocabularyView,
     practiceSessions: state.practiceSessions,
     roleplaySessions: state.roleplaySessions,
     dailyRecommendations: state.dailyRecommendations,
@@ -254,6 +264,14 @@ function hydrate(d) {
     .filter(candidate => state.sourceDocuments.some(
       document => document.id === candidate.documentId,
     ));
+  state.vocabularyTasks = (d?.vocabularyTasks || []).map(normalizeVocabularyTask).filter(Boolean);
+  state.recognitionSessions = (d?.recognitionSessions || []).map(normalizeRecognitionSession).filter(Boolean);
+  state.vocabularyView = d?.vocabularyView || null;
+  state.items.forEach(item => {
+    if (item.materialStatus === 'preparing') {
+      item.materialStatus = 'pending'; item.materialError = '上次材料准备未完成，请重试';
+    }
+  });
   state.practiceSessions = Array.isArray(d?.practiceSessions)
     ? d.practiceSessions
       .map(normalizePracticeSession)
@@ -546,6 +564,12 @@ export function makeItem(o) {
     anchorSentence: o.anchorSentence || '',
     relatedExpressionIds: o.relatedExpressionIds || [],
     domainTags: o.domainTags || [],
+    learningGoal: o.learningGoal,
+    goalRevision: 0,
+    recognition: emptyRecognition(),
+    evidence: o.evidence || [],
+    learningStarted: o.learningStarted !== false,
+    materialStatus: o.materialStatus || 'ready',
     trigger: o.trigger || '',       // 出现什么信号时，为了什么沟通意图调用它
     why: o.why || '',
     register: o.register || 'meeting',
@@ -578,11 +602,17 @@ export function normalizeSkeleton(value) {
     .trim();
 }
 
-export function findItemBySkeleton(skeleton, kind = 'expression') {
+export function findItemBySkeleton(skeleton, kind = 'expression', sense = '') {
+  if (kind === 'term' && !sense) {
+    const matches = state.items.filter(item => item.kind === 'term'
+      && normalizeSkeleton(item.lemma || item.skeleton) === normalizeSkeleton(skeleton));
+    return matches.length === 1 ? matches[0] : undefined;
+  }
   const signature = learningItemKey({
     kind,
     skeleton,
     lemma: kind === 'term' ? skeleton : '',
+    sense,
   });
   if (!signature) return undefined;
   return state.items.find(item => learningItemKey(item) === signature);
@@ -596,6 +626,7 @@ export function addItem(o) {
   const existing = findItemBySkeleton(
     normalized.skeleton,
     normalized.kind,
+    normalized.sense,
   );
   if (existing) {
     if (existing.status === 'retired') revive(existing.id);
@@ -616,6 +647,7 @@ export function addItem(o) {
     dueAt: reviewNotBefore || createdAt,
     reviewNotBefore,
   });
+  if (o.learningStarted === false) it.dueAt = null;
   state.items.unshift(it); track('capture'); save();
   return it;
 }
@@ -639,6 +671,10 @@ export function retire(id) {
 }
 export function revive(id) {
   const it = getItem(id); if (!it) return;
+  if (it.learningGoal === 'recognition') {
+    it.recognition = emptyRecognition(); it.status = 'learning';
+    it.dueAt = null; it.learningStarted = false; save(); return;
+  }
   it.status = 'learning'; it.box = Math.max(0, it.box - 1); it.dueAt = now(); save();
 }
 
@@ -905,10 +941,8 @@ export function completeSourceChunk(id, chunkIndex, values) {
   if (chunkIndex < expected) return document;
   if (chunkIndex !== expected) throw new Error('分块进度不一致，请重试');
 
-  const known = new Set([
-    ...state.items.map(sourceCandidateKey),
-    ...state.sourceCandidates.map(sourceCandidateKey),
-  ].filter(Boolean));
+  const known = new Map(state.sourceCandidates.filter(candidate => candidate.documentId === id)
+    .map(candidate => [sourceCandidateKey(candidate), candidate]));
   const sourceChunk = sourceDocumentChunk(document.id, chunkIndex);
   for (const value of Array.isArray(values) ? values : []) {
     if (!sourceCandidateGrounded(value, sourceChunk)) continue;
@@ -922,8 +956,19 @@ export function completeSourceChunk(id, chunkIndex, values) {
       createdAt: now(),
     });
     const key = sourceCandidateKey(candidate);
-    if (!candidate || !key || known.has(key)) continue;
-    known.add(key);
+    if (!candidate || !key) continue;
+    const evidence = { documentId: id, title: document.title, url: document.sourceUrl, quote: candidate.quote };
+    if (known.has(key)) {
+      appendEvidence(known.get(key), evidence);
+      continue;
+    }
+    appendEvidence(candidate, evidence);
+    const existingItem = state.items.find(item => learningItemKey(item) === key);
+    if (existingItem) {
+      candidate.itemId = existingItem.id;
+      appendEvidence(existingItem, evidence);
+    }
+    known.set(key, candidate);
     state.sourceCandidates.push(candidate);
   }
 
@@ -979,6 +1024,208 @@ export function sourcePoolStats() {
     pending: available.length,
     used: state.sourceCandidates.filter(candidate => candidate.consumedAt).length,
   };
+}
+
+function appendEvidence(target, evidence) {
+  const list = target.evidence || (target.evidence = []);
+  if (!list.some(entry => entry.documentId === evidence.documentId && entry.quote === evidence.quote)) {
+    list.push(evidence);
+  }
+}
+
+export function sourceCandidatesFor(documentId) {
+  return state.sourceCandidates.filter(candidate => candidate.documentId === documentId);
+}
+
+export function selectSourceCandidate(id, selection) {
+  const candidate = state.sourceCandidates.find(entry => entry.id === id);
+  if (!candidate || candidate.itemId) return;
+  const key = sourceCandidateKey(candidate);
+  // Familiarity is scoped to this sense, across all sources.
+  const matches = state.sourceCandidates.filter(entry => sourceCandidateKey(entry) === key);
+  for (const entry of matches) {
+    entry.selection = ['recognition', 'production', 'known'].includes(selection) ? selection : '';
+  }
+  save();
+}
+
+export function addManualSourceCandidate(documentId, value) {
+  const document = getSourceDocument(documentId);
+  if (!document || !sourceCandidateGrounded(value, document.body)) {
+    throw new Error('无法在原文中确认这个词及其用法，请重新选择');
+  }
+  const existing = sourceCandidatesFor(documentId).find(candidate => sourceCandidateKey(candidate) === sourceCandidateKey(value));
+  if (existing) return existing;
+  const candidate = normalizeSourceCandidate({
+    ...value, id: uid(), documentId, chunkIndex: 0,
+    sourceTitle: document.title, sourceUrl: document.sourceUrl, createdAt: now(),
+  });
+  if (!candidate) throw new Error('释义尚不完整，请重试');
+  appendEvidence(candidate, { documentId, title: document.title, url: document.sourceUrl, quote: candidate.quote });
+  const item = state.items.find(entry => learningItemKey(entry) === learningItemKey(candidate));
+  if (item) { candidate.itemId = item.id; candidate.selection = ''; appendEvidence(item, candidate.evidence[0]); }
+  state.sourceCandidates.push(candidate);
+  document.candidateCount = sourceCandidatesFor(documentId).length;
+  save();
+  return candidate;
+}
+
+export async function saveVocabularySelection(documentId) {
+  const snapshot = JSON.stringify({
+    items: state.items, candidates: state.sourceCandidates,
+    tasks: state.vocabularyTasks, log: state.log,
+  });
+  let task = [...state.vocabularyTasks].reverse().find(entry => entry.documentId === documentId);
+  const selected = sourceCandidatesFor(documentId).filter(candidate =>
+    !candidate.itemId && ['recognition', 'production'].includes(candidate.selection));
+  if (!selected.length) return task || null;
+  if (!task) {
+    task = { id: uid(), documentId, title: getSourceDocument(documentId)?.title || '导入学习',
+      itemIds: [], completedIds: [], groupIds: [], paused: true, createdAt: now() };
+    state.vocabularyTasks.push(task);
+  }
+  for (const candidate of selected) {
+    const existing = state.items.find(item => learningItemKey(item) === sourceCandidateKey(candidate));
+    const createdAt = now();
+    const delayDays = initialReviewDelayDays(newThisWeek(), WEEKLY_NEW_TARGET);
+    const item = existing || makeItem({
+      ...candidate, learningGoal: candidate.kind === 'term' ? candidate.selection : 'production',
+      learningStarted: false, materialStatus: 'pending', srcKind: 'source', raw: candidate.quote,
+      createdAt, reviewNotBefore: delayDays ? createdAt + delayDays * 86_400_000 : 0,
+    });
+    if (!existing) { item.dueAt = null; state.items.unshift(item); track('capture'); }
+    for (const evidence of candidate.evidence) appendEvidence(item, evidence);
+    for (const match of state.sourceCandidates.filter(entry => sourceCandidateKey(entry) === sourceCandidateKey(candidate))) {
+      match.itemId = item.id; match.consumedAt = now(); match.selection = '';
+      for (const evidence of match.evidence) appendEvidence(item, evidence);
+    }
+    if (!task.itemIds.includes(item.id)) task.itemIds.push(item.id);
+  }
+  save();
+  await flush();
+  if (lastPersistenceError) {
+    const previous = JSON.parse(snapshot);
+    state.items = previous.items; state.sourceCandidates = previous.candidates;
+    state.vocabularyTasks = previous.tasks; state.log = previous.log;
+    throw lastPersistenceError;
+  }
+  return task;
+}
+
+export function remainingVocabulary(task) {
+  return task ? task.itemIds.filter(id => getItem(id)?.status !== 'retired' && getItem(id) && !task.completedIds.includes(id)) : [];
+}
+export function pendingVocabularyTask() {
+  return [...state.vocabularyTasks].reverse().find(task => remainingVocabulary(task).length) || null;
+}
+export function latestRecognitionSession() {
+  return [...state.recognitionSessions].reverse().find(session => !session.completedAt
+    && ['due-review', 'notification'].includes(session.sourceId)
+    && getItem(session.itemId)?.learningGoal === 'recognition'
+    && getItem(session.itemId)?.status !== 'retired'
+    && (getItem(session.itemId)?.goalRevision || 0) === session.goalRevision) || null;
+}
+export function resumeVocabularyTask(id) {
+  const task = state.vocabularyTasks.find(entry => entry.id === id) || pendingVocabularyTask();
+  if (!task) return null;
+  if (!task.groupIds.length) {
+    task.groupIds = remainingVocabulary(task).slice(0, 5);
+  }
+  task.paused = false; save(); return task;
+}
+export function completeVocabularyItem(taskId, itemId) {
+  const task = state.vocabularyTasks.find(entry => entry.id === taskId);
+  if (!task || !task.itemIds.includes(itemId)) return;
+  if (!task.completedIds.includes(itemId)) task.completedIds.push(itemId);
+  save();
+}
+export function completeVocabularyItemEverywhere(itemId) {
+  for (const task of state.vocabularyTasks) completeVocabularyItem(task.id, itemId);
+}
+export function linkSourceCandidatesToItem(itemId) {
+  const item = getItem(itemId);
+  if (!item) return;
+  for (const candidate of state.sourceCandidates.filter(entry => sourceCandidateKey(entry) === learningItemKey(item))) {
+    candidate.itemId = itemId; candidate.selection = ''; candidate.consumedAt = now();
+    for (const evidence of candidate.evidence || []) appendEvidence(item, evidence);
+  }
+  save();
+}
+export function setLearningGoal(id, value) {
+  const item = getItem(id);
+  if (!item || item.kind !== 'term') return;
+  const goal = normalizeLearningGoal(value);
+  if (item.learningGoal === goal) return;
+  item.goalRevision = (item.goalRevision || 0) + 1;
+  item.learningGoal = goal;
+  if (goal === 'production' && !item.drill?.answer) item.materialStatus = 'pending';
+  if (goal === 'recognition') {
+    item.recognition = emptyRecognition(); item.dueAt = null; item.learningStarted = false;
+  } else {
+    item.dueAt = now(); item.learningStarted = item.history.some(entry => entry.scheduleApplied !== false);
+    if (!item.learningStarted) item.dueAt = null;
+  }
+  item.status = 'learning'; save();
+}
+export function restartRecognition(id) {
+  const item = getItem(id);
+  if (!item || item.learningGoal !== 'recognition') return;
+  item.goalRevision = (item.goalRevision || 0) + 1;
+  item.recognition = emptyRecognition(); item.learningStarted = false;
+  item.dueAt = null; item.status = 'learning'; save();
+}
+export function setVocabularyMaterial(id, material, goalRevision) {
+  const item = getItem(id);
+  if (!item || (item.goalRevision || 0) !== goalRevision) return false;
+  Object.assign(item, {
+    collocations: material.collocations || [], why: material.usage || '',
+    anchorSentence: material.anchorSentence || item.source.raw,
+    seeds: material.anchorSentence ? [material.anchorSentence] : item.seeds,
+    trigger: material.trigger || '', drill: material.drill || item.drill,
+    vocabularyMaterial: material, materialStatus: 'ready', materialError: '',
+  });
+  save(); return true;
+}
+export function activeRecognitionSession(itemId, sourceId = '') {
+  const item = getItem(itemId);
+  return [...state.recognitionSessions].reverse().find(session =>
+    session.itemId === itemId && session.sourceId === sourceId && !session.completedAt
+    && session.goalRevision === (item?.goalRevision || 0)) || null;
+}
+export function beginRecognitionSession(itemId, sourceId, material) {
+  const item = getItem(itemId);
+  if (!item) throw new Error('找不到词汇');
+  const existing = activeRecognitionSession(itemId, sourceId);
+  if (existing) return existing;
+  const session = {
+    id: uid(), itemId, sourceId, goalRevision: item.goalRevision || 0,
+    sentence: material.sentence, explanation: material.explanation, answerDraft: '',
+    hinted: false, result: '', settledAt: 0, completedAt: 0, startedAt: now(),
+  };
+  state.recognitionSessions.push(session); save(); return session;
+}
+export function hintRecognition(sessionId) {
+  const session = state.recognitionSessions.find(entry => entry.id === sessionId);
+  if (session) { session.hinted = true; save(); }
+}
+export function settleRecognition(sessionId, result, answer = '') {
+  const session = state.recognitionSessions.find(entry => entry.id === sessionId);
+  if (!session || session.settledAt || !['understood', 'unfamiliar'].includes(result)) return session;
+  const item = getItem(session.itemId);
+  if (!item) return session;
+  session.settledAt = now(); session.result = result; session.answerDraft = String(answer || '');
+  session.scheduleApplied = item.learningGoal === 'recognition' && item.status !== 'retired'
+    && (item.goalRevision || 0) === session.goalRevision;
+  if (session.scheduleApplied) {
+    item.recognition = nextRecognition(item.recognition, result, session.hinted, session.settledAt);
+    item.dueAt = item.recognition.dueAt; item.learningStarted = true; item.lastAt = session.settledAt;
+    recomputeStatus(item);
+  }
+  track('recognition_self'); save(); return session;
+}
+export function completeRecognitionSession(id) {
+  const session = state.recognitionSessions.find(entry => entry.id === id);
+  if (session?.settledAt) { session.completedAt = now(); save(); }
 }
 
 export function addNotificationReplies(replies) {
@@ -1067,13 +1314,18 @@ export async function saveDailyRecommendations(items) {
   });
   const consumedAt = now();
   for (const card of deck.items) {
+    const alreadyCollected = state.items.find(item => learningItemKey(item) === learningItemKey(card));
+    if (alreadyCollected) card.collectedItemId = alreadyCollected.id;
     if (!card.sourceCandidateId) continue;
     const candidate = state.sourceCandidates.find(
       entry => entry.id === card.sourceCandidateId,
     );
-    if (!candidate || candidate.consumedAt) continue;
-    candidate.consumedAt = consumedAt;
-    candidate.recommendationId = card.id;
+    if (!candidate || candidate.consumedAt || candidate.selection || candidate.itemId) continue;
+    for (const match of state.sourceCandidates.filter(entry => sourceCandidateKey(entry) === sourceCandidateKey(candidate))) {
+      if (!match.selection && !match.itemId) {
+        match.consumedAt = consumedAt; match.recommendationId = card.id;
+      }
+    }
   }
   state.dailyRecommendations = deck;
   track('recommendations_generated');
@@ -1277,6 +1529,7 @@ export function activePracticeSession(itemId, source, sourceId = '') {
     .reverse()
     .find(session => (
       !session.completedAt
+      && (session.goalRevision || 0) === (getItem(itemId)?.goalRevision || 0)
       && practiceSessionKey(session.itemId, session.source, session.sourceId) === key
     )) || null;
 }
@@ -1287,6 +1540,8 @@ export function latestPracticeSession(sources = []) {
     .reverse()
     .find(session => (
       !session.completedAt
+      && getItem(session.itemId)?.learningGoal !== 'recognition'
+      && (session.goalRevision || 0) === (getItem(session.itemId)?.goalRevision || 0)
       && (!allowed.size || allowed.has(session.source))
     )) || null;
 }
@@ -1323,6 +1578,8 @@ export function ensurePracticeSession(itemId, options = {}) {
     answer: options.answer,
   });
   state.practiceSessions.push(session);
+  session.goalRevision = item.goalRevision || 0;
+  session.learningGoal = item.learningGoal || 'production';
   if (state.practiceSessions.length > 200) {
     const completedIndex = state.practiceSessions.findIndex(candidate => candidate.completedAt);
     state.practiceSessions.splice(completedIndex >= 0 ? completedIndex : 0, 1);
@@ -1481,6 +1738,9 @@ export function settlePracticeAttempt(sessionId, attemptId, ok, payload = {}) {
   }
 
   const before = practiceItemSnapshot(item);
+  const applicable = item.status !== 'retired'
+    && item.learningGoal !== 'recognition'
+    && (item.goalRevision || 0) === (session.goalRevision || 0);
   applyGradeToItem(item, !!ok, {
     answer: attempt.answer,
     ms: payload.ms || Math.max(0, completedAt - attempt.startedAt),
@@ -1488,6 +1748,8 @@ export function settlePracticeAttempt(sessionId, attemptId, ok, payload = {}) {
     why: payload.why || '',
     sessionId: session.id,
     attemptId: attempt.id,
+    historyOnly: !applicable,
+    learningGoal: session.learningGoal || 'production',
   }, completedAt);
   session.settlement = {
     attemptId: attempt.id,
@@ -1553,6 +1815,9 @@ export function revisePracticeAttempt(
     const hasLaterGrade = historyIndex >= 0 && historyIndex < history.length - 1;
     if (
       historyIndex < 0
+      || item.learningGoal === 'recognition'
+      || item.status === 'retired'
+      || (item.goalRevision || 0) !== (session.goalRevision || 0)
       || hasLaterGrade
       || !samePracticeSchedule(item, session.settlement.after)
     ) {
@@ -1603,7 +1868,7 @@ export function live() { return state.items.filter(i => i.status !== 'retired');
 export function dueItems() {
   const t = now();
   return live()
-    .filter(i => i.dueAt <= t)
+    .filter(i => i.status !== 'familiar' && i.learningStarted !== false && Number.isFinite(i.dueAt) && i.dueAt <= t)
     .sort((a, b) => {
       // 从没被自己造过句的优先（首次产出是最关键的一步）
       const fa = a.mine.length === 0 ? 0 : 1, fb = b.mine.length === 0 ? 0 : 1;
@@ -1619,11 +1884,11 @@ export function nextDue() { return dueItems()[0] || null; }
 function applyGradeToItem(it, ok, payload = {}, gradedAt = now()) {
   const history = Array.isArray(it.history) ? it.history : (it.history = []);
   const mine = Array.isArray(it.mine) ? it.mine : (it.mine = []);
-  const firstAttempt = history.length === 0;
+  const firstAttempt = !history.some(entry => entry.scheduleApplied !== false);
   const reviewNotBefore = firstAttempt
     ? Math.max(0, Number(it.reviewNotBefore) || 0)
     : 0;
-  const lastPassedAt = [...history].reverse().find(entry => entry.ok)?.at || 0;
+  const lastPassedAt = [...history].reverse().find(entry => entry.ok && entry.scheduleApplied !== false)?.at || 0;
   const event = {
     at: gradedAt,
     ok: !!ok,
@@ -1634,12 +1899,19 @@ function applyGradeToItem(it, ok, payload = {}, gradedAt = now()) {
   };
   if (payload.sessionId) event.sessionId = payload.sessionId;
   if (payload.attemptId) event.attemptId = payload.attemptId;
+  event.learningGoal = payload.learningGoal || 'production';
+  event.scheduleApplied = !payload.historyOnly;
   history.push(event);
   if (payload.answer) {
     mine.push({ text: payload.answer, at: gradedAt, ctx: payload.ctx || '' });
   }
+  if (payload.historyOnly) return it;
+  it.learningStarted = true;
   it.lastAt = gradedAt;
   const next = nextReview(it, !!ok, gradedAt, lastPassedAt);
+  if (ok && next.box === it.box && Number(next.dueAt) <= gradedAt && lastPassedAt) {
+    next.dueAt = gradedAt + Math.max(1, LADDER[it.box] || 1) * 86_400_000;
+  }
   it.box = next.box;
   it.dueAt = applyReviewNotBefore(next, reviewNotBefore).dueAt;
   if (firstAttempt) it.reviewNotBefore = 0;
@@ -1649,6 +1921,7 @@ function applyGradeToItem(it, ok, payload = {}, gradedAt = now()) {
 
 export function grade(id, ok, payload = {}) {
   const it = getItem(id); if (!it) return null;
+  if (it.learningGoal === 'recognition' || it.status === 'retired') return it;
   applyGradeToItem(it, ok, payload);
   track(ok ? 'recall_ok' : 'recall_miss');
   save();
@@ -1661,6 +1934,10 @@ export function grade(id, ok, payload = {}) {
    - 至少 1 次真实场景使用（自己打卡）
    模型评分永远不能单独把一条判为已内化。 */
 export function recomputeStatus(it) {
+  if (it.learningGoal === 'recognition') {
+    it.status = it.status === 'retired' ? 'retired' : it.recognition?.familiar ? 'familiar' : 'learning';
+    return it.status;
+  }
   it.status = isOwned(it.box, it.usedReal.length)
     ? 'owned'
     : (it.status === 'retired' ? 'retired' : 'learning');

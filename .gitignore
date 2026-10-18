@@ -2,6 +2,9 @@ node_modules/
 .DS_Store
 .env
 .env.local
+.trae-html-share-packages/
+docs/branding/
+docs/reviews/
 www/
 coverage/
 android/.gradle/

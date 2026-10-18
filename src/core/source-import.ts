@@ -31,6 +31,10 @@ export interface SourceDocument {
   error: string;
   createdAt: number;
   updatedAt: number;
+  filteredCount: number;
+  manualSelection: string;
+  manualQuote: string;
+  manualError: string;
 }
 
 export interface SourceCandidate {
@@ -49,6 +53,11 @@ export interface SourceCandidate {
   consumedAt: number;
   recommendationId: string;
   createdAt: number;
+  suggestedGoal: 'recognition' | 'production';
+  goalReason: string;
+  selection: '' | 'recognition' | 'production' | 'known';
+  itemId: string;
+  evidence: Array<{ documentId: string; title: string; url: string; quote: string }>;
 }
 
 type JsonRecord = Record<string, unknown>;
@@ -209,6 +218,10 @@ export function normalizeSourceDocument(value: unknown): SourceDocument | null {
       : text(value.error),
     createdAt: timestamp(value.createdAt),
     updatedAt: timestamp(value.updatedAt),
+    filteredCount: Math.max(0, Number(value.filteredCount) || 0),
+    manualSelection: text(value.manualSelection),
+    manualQuote: text(value.manualQuote),
+    manualError: text(value.manualError),
   };
 }
 
@@ -246,6 +259,12 @@ export function normalizeSourceCandidate(
     consumedAt: timestamp(value.consumedAt),
     recommendationId: text(value.recommendationId),
     createdAt: timestamp(value.createdAt),
+    suggestedGoal: value.suggestedGoal === 'recognition' ? 'recognition' : 'production',
+    goalReason: text(value.goalReason),
+    selection: ['recognition', 'production', 'known'].includes(String(value.selection))
+      ? value.selection as SourceCandidate['selection'] : '',
+    itemId: text(value.itemId),
+    evidence: Array.isArray(value.evidence) ? value.evidence : [],
   };
 }
 
@@ -262,8 +281,9 @@ export function normalizeSourceCandidates(value: unknown): SourceCandidate[] {
   for (const entry of Array.isArray(value) ? value : []) {
     const candidate = normalizeSourceCandidate(entry);
     const key = sourceCandidateKey(candidate);
-    if (!candidate || !key || seen.has(key)) continue;
-    seen.add(key);
+    const documentKey = `${candidate?.documentId}:${key}`;
+    if (!candidate || !key || seen.has(documentKey)) continue;
+    seen.add(documentKey);
     result.push(candidate);
   }
   return result;
@@ -275,13 +295,18 @@ export function pendingSourceCandidates(input: {
   allowEverydayTerms?: boolean;
   limit?: number;
 }): SourceCandidate[] {
+  const candidates = normalizeSourceCandidates(input.candidates);
+  const excludedKeys = new Set(candidates.filter(candidate => candidate.selection || candidate.itemId || candidate.consumedAt).map(sourceCandidateKey));
+  const seen = new Set<string>();
   const existingKeys = new Set(
     (Array.isArray(input.existingItems) ? input.existingItems : [])
       .map(learningItemKey)
       .filter(Boolean),
   );
-  return normalizeSourceCandidates(input.candidates)
+  return candidates
     .filter(candidate => !candidate.consumedAt)
+    .filter(candidate => !candidate.selection && !candidate.itemId)
+    .filter(candidate => !excludedKeys.has(sourceCandidateKey(candidate)))
     .filter(candidate => !existingKeys.has(sourceCandidateKey(candidate)))
     .filter(candidate => (
       input.allowEverydayTerms
@@ -292,5 +317,10 @@ export function pendingSourceCandidates(input: {
       left.createdAt - right.createdAt
       || left.chunkIndex - right.chunkIndex
     ))
+    .filter(candidate => {
+      const key = sourceCandidateKey(candidate);
+      if (seen.has(key)) return false;
+      seen.add(key); return true;
+    })
     .slice(0, Math.max(1, Math.floor(input.limit || 12)));
 }

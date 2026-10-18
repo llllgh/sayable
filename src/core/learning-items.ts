@@ -1,3 +1,5 @@
+import { normalizeLearningGoal, normalizeRecognition } from './vocabulary';
+
 export type LearningItemKind = 'expression' | 'term';
 export type TermCategory = 'professional' | 'precision' | 'everyday';
 
@@ -86,6 +88,13 @@ export function termAppearsInSentence(
       variants.add(`${lemma.slice(0, -1)}ies`);
       variants.add(`${lemma.slice(0, -1)}ied`);
     }
+  } else {
+    const [verb, ...rest] = lemma.split(' ');
+    const suffix = rest.join(' ');
+    for (const form of [`${verb}s`, `${verb}ed`, `${verb}ing`,
+      ...(verb.endsWith('e') ? [`${verb}d`, `${verb.slice(0, -1)}ing`] : [])]) {
+      variants.add(`${form} ${suffix}`);
+    }
   }
   const pattern = [...variants]
     .sort((left, right) => right.length - left.length)
@@ -151,6 +160,9 @@ export function normalizeLearningItem<T extends JsonRecord>(value: T): T & {
   return {
     ...value,
     kind,
+    learningGoal: normalizeLearningGoal(value.learningGoal),
+    goalRevision: Number(value.goalRevision) || 0,
+    recognition: normalizeRecognition(value.recognition),
     termCategory,
     skeleton: lemma,
     zh: sense,
@@ -170,9 +182,12 @@ export function learningItemKey(value: unknown): string {
     ? text(value.lemma || value.skeleton)
     : text(value.skeleton);
   if (!primary) return '';
-  return `${kind}:${primary
+  const primaryKey = primary
     .normalize('NFKC')
     .toLocaleLowerCase('en-US')
     .replace(/\s+/gu, ' ')
-    .trim()}`;
+    .trim();
+  const sense = text(value.sense || value.zh).normalize('NFKC')
+    .toLocaleLowerCase('en-US').replace(/\s+/gu, ' ').trim();
+  return kind === 'term' ? `${kind}:${primaryKey}:${sense}` : `${kind}:${primaryKey}`;
 }

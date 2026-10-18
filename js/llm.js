@@ -34,6 +34,8 @@ import {
   roleplayJudgeSchema,
   roleplayStartSchema,
   sourceExtractionSchemaFor,
+  vocabularyMaterialSchemaFor,
+  manualVocabularySchemaFor,
 } from '../src/llm/schemas.ts';
 import {
   normalizeJudgementText,
@@ -53,6 +55,7 @@ import {
   isProfessionalTermCandidate,
   normalizeLearningItem,
   termCategoryLabel,
+  termAppearsInSentence,
 } from '../src/core/learning-items.ts';
 
 export { LlmError, userMessage };
@@ -363,6 +366,10 @@ export async function judge({
       task: 'judge',
     },
   );
+  if (kind === 'term' && !termAppearsInSentence(skeleton, answer)) {
+    result.used_target = false;
+    result.verdict = result.meaning_intact ? '意思表达清楚，但还没有使用目标词。' : result.verdict;
+  }
   return resolveJudgement(result);
 }
 
@@ -461,25 +468,28 @@ export async function extractSourceChunk(chunk, {
   const sys = `你是一名英语语料编辑。你的任务不是总结文章，而是从原文中挑出值得中文母语职业人士主动掌握的英语表达。
 
 硬性要求：
-1. 每个分块最多返回 6 个候选；没有足够好的内容时可返回空数组，不得凑数。
+1. 优先找出可能影响理解的词汇及固定短语，每段最多 20 个词汇、4 个表达；没有合适内容时可返回空数组，不得凑数，不宣称全部覆盖。
 2. 只接受两类候选：
    - expression：原文中真实出现、可迁移到至少 3 个场景的高频表达骨架，用 X / Y / Z 替换可变内容；
-   - term：专业词汇、精确书面用词或具体生活用语，termCategory 分别填 professional、precision、everyday。
+   - term：单个词或固定短语当前义项，包含专业词汇、精确用词或生活用语，termCategory 分别填 professional、precision、everyday。rule out 这类固定短语归 term；mitigate 这类用词本身需要理解时归 term，不因能带宾语就替换为 X 骨架。
 3. quote 必须逐字摘自本分块，保留足以证明用法的一句原文，不得改写、翻译或拼接。
 4. expression 的 skeleton 必须能在 quote 中直接找到固定词序；term 的 lemma 必须真实出现在 quote 中。
-5. 排除专有名词、产品名、基础词、只在本段成立的事实、低频炫技词、口头填充语和缺少复用价值的完整句。
+5. 排除产品名、只在本段成立的事实、口头填充语；常用但义项不直观的词也值得推荐，词汇不必具备主动产出价值。
 6. 第一遍只做轻量候选提取，不生成练习、搭配、例句或长解释。
-7. 只输出 JSON，不要 markdown 或额外说明。
+7. 为每个词汇给出 suggestedGoal（recognition 看懂即可 / production 希望会用）和一句中文 goalReason。专业名词通常建议认识，可迁移的动词/形容词通常建议会用，但不能替用户决定。
+8. zh、sense 和 goalReason 必须用中文。term 的 zh 与 sense 填同一个简洁中文语境义项，不写英文词典定义。跨语境同词异义分别返回，不把技术义和比喻义合并；不要漏掉影响理解的名词、动词和程度形容词。
+9. 只输出 JSON，不要 markdown 或额外说明。
 
 JSON：
-{"items":[{"kind":"expression|term","termCategory":"仅 term 填 professional|precision|everyday","skeleton":"表达骨架或目标词","zh":"简洁准确的中文含义","lemma":"仅 term 填目标词，否则 null","sense":"仅 term 填当前语境义项，否则 null","quote":"逐字摘录的一句原文"}]}`;
+{"items":[{"kind":"expression|term","termCategory":"仅 term 填 professional|precision|everyday","skeleton":"表达骨架或目标词","zh":"简洁准确的中文含义","lemma":"仅 term 填目标词，否则 null","sense":"仅 term 填当前语境义项，否则 null","quote":"逐字摘录的一句原文","suggestedGoal":"recognition|production","goalReason":"具体建议理由"}]}`;
   const user = `【来源】${title || '未命名来源'}
 【分块】${Number(chunkIndex) + 1} / ${Math.max(1, Number(chunkCount) || 1)}
 
 【原文】
 """
 ${chunk}
-"""`;
+"""
+本次优先提取词汇和固定短语，再提取少量表达；term 的 zh/sense 填相同中文语境义，不能填英文定义。`;
   return await chat(
     [{ role: 'system', content: sys }, { role: 'user', content: user }],
     sourceExtractionSchemaFor(chunk),
@@ -489,6 +499,34 @@ ${chunk}
       task: 'source_extraction',
     },
   );
+}
+
+export async function explainSelectedVocabulary(selected, quote) {
+  return chat([
+    { role: 'system', content: `解释用户明确不认识的英文词或固定短语，只解释其原句义项，基础词也必须接受。无法确定时不要猜测。
+输出 JSON：{"kind":"term","termCategory":"professional|precision|everyday","skeleton":"原形","zh":"中文语境义","lemma":"原形","sense":"与 zh 相同的语境义","quote":"原句逐字摘录","suggestedGoal":"recognition|production","goalReason":"一句具体中文建议"}
+词形变化可还原，固定短语保留；不可添加用户未选的其他词。` },
+    { role: 'user', content: JSON.stringify({ selected, quote }) + '\n只解释所选词的当前义项。zh 和 sense 均填相同的简短中文，不用英文定义。' },
+  ], manualVocabularySchemaFor(quote, selected), { maxTokens: 4096, task: 'vocabulary_selection' });
+}
+
+export async function prepareVocabularyMaterial(item, { review = false } = {}) {
+  const recognition = item.learningGoal === 'recognition';
+  return chat([
+    { role: 'system', content: `你是英语语境学习教练，按指定义项准备一条材料。
+用户目标：${recognition ? '看懂即可。无需搭配与产出题。' : '希望会用。提供 2—4 个自然搭配、使用边界和全中文的迁移任务。'}
+sentence 是使用目标词的新英文语境，必须与原文对象、场景和内容不同。explanation 用中文解释这句中目标词的含义及用法，不能提前放进 sentence。
+usage 用中文简短解释原文用法与边界，anchorSentence 可给一个例句，须明确属示例。
+产出 drill 参考答案必须使用目标词当前义项，任务和答案必须与原文、anchorSentence 的场景及对象不同；不把原句翻译回英文当练习。brief/target_zh/trigger 全中文。
+JSON：{"usage":"简短用法边界","sentence":"新语境英文句","explanation":"新语境解释","collocations":[],"anchorSentence":"示例英文句","trigger":"中文触发时机","drill":${recognition ? 'null' : '{"brief":"中文新任务","target_zh":"具体中文目标","answer":"使用目标的英文参考答案"}'}}
+${review ? '这是延迟理解检查，请生成新的语境。' : '这是首次学习。'}` },
+    { role: 'user', content: JSON.stringify({
+      kind: item.kind, learningGoal: item.learningGoal,
+      target: item.lemma || item.skeleton, sense: item.sense || item.zh,
+      quote: item.source?.raw || '', anchor: item.anchorSentence || '',
+      profile: profileBlock(),
+    }) + `\n本次目标：${recognition ? '看懂即可，只准备语境理解，drill 必须为 null。' : '希望会用，准备搭配和更换对象/场景的产出题。'}新语境必须仍使用本次义项。` },
+  ], vocabularyMaterialSchemaFor(item), { maxTokens: 4096, task: 'vocabulary_material' });
 }
 
 /* ---------- 5) 今日推荐 ---------- */

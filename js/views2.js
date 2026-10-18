@@ -559,12 +559,13 @@ function runSourceJob(documentId, app) {
           chunkIndex,
           result.items,
         );
+        document.filteredCount = (document.filteredCount || 0) + (result.filteredCount || 0);
         await S.flush();
-        if (app.dataset.route === 'source') viewSourceImport(app);
+        if (app.dataset.route === 'source' && !$('#vocabulary-picker', app)) viewSourceImport(app);
       }
     } catch (error) {
       S.failSourceDocument(documentId, L.userMessage(error));
-      if (app.dataset.route === 'source') viewSourceImport(app);
+      if (app.dataset.route === 'source' && !$('#vocabulary-picker', app)) viewSourceImport(app);
     }
   })().finally(() => {
     sourceJobs.delete(documentId);
@@ -583,7 +584,7 @@ export function viewSourceImport(app) {
     <div class="page-head">
       <div class="page-head-copy">
         <h1 class="h-lg zh">导入长文本</h1>
-        <p class="sub zh">粘贴英文正文，分段提炼后陆续进入今日推荐。</p>
+        <p class="sub zh">从播客或文章挑选生词，当场开始学习。</p>
       </div>
     </div>
 
@@ -618,6 +619,9 @@ export function viewSourceImport(app) {
           </div>
           ${document.sourceUrl ? `<p class="source-document-url">${esc(document.sourceUrl)}</p>` : ''}
           <div class="source-document-actions">
+            <button class="btn btn-sm btn-pri" data-source-pick="${esc(document.id)}">挑选词汇</button>
+            ${S.state.vocabularyTasks.some(task => task.documentId === document.id && S.remainingVocabulary(task).length)
+              ? `<button class="btn btn-sm btn-ghost" data-source-learn="${esc(document.id)}">继续学习</button>` : ''}
             ${document.status === 'failed' || document.status === 'interrupted'
               ? `<button class="btn btn-sm btn-pri" data-source-resume="${esc(document.id)}">继续提炼</button>`
               : ''}
@@ -680,6 +684,11 @@ export function viewSourceImport(app) {
       viewSourceImport(app);
     },
   ));
+  $$('[data-source-pick]', app).forEach(button => button.addEventListener('click', () => go('vocabulary', { documentId: button.dataset.sourcePick })));
+  $$('[data-source-learn]', app).forEach(button => button.addEventListener('click', () => {
+    const task = [...S.state.vocabularyTasks].reverse().find(task => task.documentId === button.dataset.sourceLearn);
+    go('vocabulary', { taskId: task.id });
+  }));
 }
 
 /* ---------------------------------------------------------------- 会前热身 */
@@ -886,8 +895,8 @@ export function viewLibrary(app, arg = {}) {
   const searchedRecords = records.filter(record => recordMatchesQuery(record, libQuery));
   const map = {
     all: kindItems.filter(i => i.status !== 'retired'),
-    due: kindItems.filter(i => i.status !== 'retired' && i.dueAt <= Date.now()),
-    silent: kindItems.filter(i => i.status !== 'retired' && i.history.length === 0),
+    due: kindItems.filter(i => S.dueItems().some(due => due.id === i.id)),
+    silent: kindItems.filter(i => i.status !== 'retired' && i.history.length === 0 && !i.recognition?.startedAt),
     owned: kindItems.filter(i => i.status === 'owned'),
     retired: kindItems.filter(i => i.status === 'retired'),
   };
@@ -925,7 +934,7 @@ export function viewLibrary(app, arg = {}) {
 
     <section class="library-tools" aria-label="表达工具">
       <button type="button" data-nav="source">
-        <span class="grow"><strong>导入长文本</strong><small>从真实文本提炼后续推荐</small></span><span aria-hidden="true">›</span>
+        <span class="grow"><strong>导入长文本</strong><small>挑选生词，立即学习</small></span><span aria-hidden="true">›</span>
       </button>
       <button type="button" data-nav="compress">
         <span class="grow"><strong>精简表达</strong><small>保留重点，把长段落说短</small></span><span aria-hidden="true">›</span>
@@ -953,9 +962,9 @@ export function viewLibrary(app, arg = {}) {
             ${i.kind === 'term' ? `<span class="chip warm">${termCategoryLabel(i.termCategory)}</span>` : ''}
             <span class="skel en">${skel(i.skeleton)}</span>
             <span class="library-item-meaning zh">${esc(i.zh)}</span>
-            <span class="library-item-state">${i.history.length ? `练习 ${i.history.length} 次` : '未练习'} · ${i.dueAt === Infinity ? '已完成' : `${inWords(i.dueAt)}复习`}</span>
+            <span class="library-item-state">${i.learningGoal === 'recognition' ? '看懂即可' : i.history.length ? `练习 ${i.history.length} 次` : '未练习'} · ${i.status === 'familiar' ? '已熟悉' : !Number.isFinite(i.dueAt) ? '待开始' : `${inWords(i.dueAt)}复习`}</span>
           </span>
-          <span>${ladderHTML(i.box, i.status === 'owned', { labeled: true })}</span>
+          <span>${i.learningGoal === 'recognition' ? `${i.recognition?.successes.length || 0}/2 巩固` : ladderHTML(i.box, i.status === 'owned', { labeled: true })}</span>
         </button>`).join('') : `<div class="empty"><p class="zh">${libQuery ? '没有匹配的内容' : '这一栏还没有内容'}</p></div>`}
       </div>
       ${map.retired.length ? `<p class="dim zh center"><button class="link mute" data-f="retired">已归档 ${map.retired.length} 个</button></p>` : ''}

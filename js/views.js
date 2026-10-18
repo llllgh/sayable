@@ -9,6 +9,7 @@ import { buildJudgementFeedback } from '../src/core/judgement.ts';
 import { recommendationProgress } from '../src/core/recommendations.ts';
 import { reviewSupport } from '../src/core/review-support.ts';
 import { termCategoryLabel } from '../src/core/learning-items.ts';
+import { recognitionCard } from './recognition.js';
 import {
   buildReviewCue,
   hasSpecificReviewCue,
@@ -31,7 +32,11 @@ export function cueFor(it) {
 }
 
 async function regenerateCueForItem(item) {
+  const revision = item.goalRevision || 0;
   const drill = await L.regenerateReviewCue(item);
+  if ((S.getItem(item.id)?.goalRevision || 0) !== revision) {
+    throw new Error('学习目标已变化，请按当前目标继续');
+  }
   S.setItemDrill(item.id, drill);
   return cueFor(item);
 }
@@ -179,6 +184,7 @@ export function drillCard(it, cue, opts = {}) {
     };
     const complete = (ok, usedReal = false) => {
       S.completePracticeSession(session.id);
+      S.completeVocabularyItemEverywhere(it.id);
       opts.onGraded?.(ok, usedReal);
     };
     const enterRetryUI = () => {
@@ -744,12 +750,14 @@ function reviewCompletionHTML(dueCount, recommendationProgressState, paused) {
 
 export function viewHome(app) {
   const due = S.dueItems();
+  const vocabularyTask = S.pendingVocabularyTask();
+  const resumedRecognition = S.latestRecognitionSession();
   const activeSession = S.latestPracticeSession(['due-review', 'recommendation']);
   const deck = S.todayRecommendationDeck();
   const recommendationState = deck ? recommendationProgress(deck) : null;
   const selected = chooseTodayMode({
     selectedMode: todayMode,
-    activeSource: activeSession?.source,
+    activeSource: activeSession?.source || (resumedRecognition ? 'due-review' : ''),
     dueCount: due.length,
     recommendationRemaining: recommendationState?.remaining ?? null,
   });
@@ -764,18 +772,19 @@ export function viewHome(app) {
   const resumedReview = activeSession?.source === 'due-review'
     ? activeSession
     : S.latestPracticeSession('due-review');
-  if (!reviewGroup && (due.length || resumedReview)) {
+  if (!reviewGroup && (due.length || resumedReview || resumedRecognition)) {
     reviewGroup = {
       ids: createReviewGroup(
         due.map(item => item.id),
-        resumedReview?.itemId || '',
+        resumedReview?.itemId || resumedRecognition?.itemId || '',
       ),
       index: 0,
       paused: false,
     };
   }
   while (reviewGroup && reviewGroup.index < reviewGroup.ids.length
-    && !S.getItem(reviewGroup.ids[reviewGroup.index])) {
+    && (!S.getItem(reviewGroup.ids[reviewGroup.index])
+      || S.getItem(reviewGroup.ids[reviewGroup.index]).status === 'retired')) {
     reviewGroup.index += 1;
   }
   const itemId = reviewGroup?.ids[reviewGroup.index] || '';
@@ -787,6 +796,7 @@ export function viewHome(app) {
       <div class="page-head-copy"><h1 class="h-lg zh">今天</h1></div>
     </div>
     ${todayModeHTML('review')}
+    ${vocabularyTask ? `<button class="btn-text" id="vocabulary-continue">继续学习词汇 · 还有 ${S.remainingVocabulary(vocabularyTask).length} 个</button>` : ''}
     ${item && !reviewGroup.paused ? `<div class="today-group-progress">
       <span>本组 ${reviewGroup.index + 1} / ${reviewGroup.ids.length}</span>
       <span>${due.length} 条待复习</span>
@@ -801,6 +811,7 @@ export function viewHome(app) {
   </div>`;
 
   bindTodayModeControls(app);
+  $('#vocabulary-continue', app)?.addEventListener('click', () => go('vocabulary', { taskId: vocabularyTask.id }));
   $('#review-stop', app)?.addEventListener('click', () => {
     if (!reviewGroup) reviewGroup = { ids: [], index: 0, paused: true };
     reviewGroup.paused = true;
@@ -817,7 +828,13 @@ export function viewHome(app) {
 
   if (item && !reviewGroup.paused) {
     const session = S.activePracticeSession(item.id, 'due-review', item.id);
-    const drill = drillCard(item, cueFor(item), {
+    const finishRecognition = () => { reviewGroup.index += 1; viewHome(app); };
+    const drill = item.learningGoal === 'recognition'
+      ? recognitionCard(item, {
+        sourceId: resumedRecognition?.itemId === item.id ? resumedRecognition.sourceId : 'due-review',
+        onDone: finishRecognition, onSkip: finishRecognition,
+      })
+      : drillCard(item, cueFor(item), {
       label: `复习 · 本组 ${reviewGroup.index + 1}/${reviewGroup.ids.length}`,
       remaining: due.length,
       skippable: true,
@@ -1249,12 +1266,14 @@ export function itemSheet(id) {
   const ok = i.history.filter(h => h.ok).length;
   const currentCue = cueFor(i);
   const isTerm = i.kind === 'term';
+  const recognition = i.learningGoal === 'recognition';
   const relatedExpressions = isTerm
     ? (i.relatedExpressionIds || []).map(S.getItem).filter(Boolean)
     : [];
   openSheet(isTerm ? `${termCategoryLabel(i.termCategory)}详情` : '表达详情', `
     <p class="skel en" style="font-size:21px">${skel(i.skeleton)} <button class="link" id="is-say">朗读</button></p>
     <p class="zh sub" style="margin-top:5px">${esc(i.zh)}</p>
+    ${isTerm ? `<label class="fld" style="margin-top:12px"><span>学习目标</span><select id="is-goal"><option value="recognition" ${recognition ? 'selected' : ''}>看懂即可</option><option value="production" ${!recognition ? 'selected' : ''}>希望会用</option></select></label>` : ''}
     ${isTerm && i.collocations?.length ? `<div style="margin-top:13px">
       <div class="eyebrow">常见搭配</div>
       <div class="chips" style="margin-top:7px">${i.collocations.map(value => `<span class="chip">${esc(value)}</span>`).join('')}</div>
@@ -1269,28 +1288,30 @@ export function itemSheet(id) {
     </div>` : ''}
     <p class="zh" id="is-trigger" style="margin-top:11px" ${i.trigger ? '' : 'hidden'}><b>触发时机：</b><span>${esc(i.trigger)}</span></p>
     <div class="chips" style="margin-top:11px">${srcPill(i.source.kind)}
-      <span class="chip ${i.status === 'owned' ? 'acc' : ''}">${i.status === 'owned' ? '已掌握' : i.status === 'retired' ? '已归档' : '学习中'}</span>
+      <span class="chip ${i.status === 'owned' ? 'acc' : ''}">${i.status === 'familiar' ? '已熟悉' : i.status === 'owned' ? '已掌握' : i.status === 'retired' ? '已归档' : '学习中'}</span>
       <span class="chip">使用 ${i.usedReal.length} 次</span></div>
     <p class="zh" style="margin-top:13px;font-weight:600">${esc(i.why || '')}</p>
 
     <div class="card flat" style="margin-top:14px">
-      <div class="kv"><b>复习进度</b><span>${ladderHTML(i.box, i.status === 'owned')} ${S.LADDER[i.box]} 天</span></div>
-      <div class="kv"><b>下次复习</b><span>${i.dueAt === Infinity ? '已完成' : inWords(i.dueAt)}</span></div>
+      <div class="kv"><b>复习进度</b><span>${recognition ? `${i.recognition?.successes.length || 0}/2 次延迟巩固` : `${ladderHTML(i.box, i.status === 'owned')} ${S.LADDER[i.box]} 天`}</span></div>
+      <div class="kv"><b>下次复习</b><span>${i.status === 'familiar' || i.status === 'retired' ? '已结束' : !Number.isFinite(i.dueAt) ? '待开始学习' : inWords(i.dueAt)}</span></div>
       <div class="kv"><b>练习记录</b><span>${ok} 次通过 / ${i.history.length} 次</span></div>
       <div class="kv"><b>添加时间</b><span>${ago(i.createdAt)}</span></div>
     </div>
 
     ${i.source.raw ? `<div class="sec" style="margin-top:16px"><span class="eyebrow">它是怎么来的</span><hr/></div>
       <p class="quote ${/[\u4e00-\u9fa5]/.test(i.source.raw) ? 'zh' : 'en'}" style="margin-top:9px">${esc(i.source.raw)}</p>` : ''}
+    ${(i.evidence || []).length ? `<details style="margin-top:12px"><summary>全部出处 · ${i.evidence.length}</summary>${i.evidence.map(entry => `<p class="tiny zh">${esc(entry.title)}</p><p class="quote en">${esc(entry.quote)}</p>`).join('')}</details>` : ''}
+    ${recognition ? `<details style="margin-top:12px"><summary>理解检查记录</summary>${S.state.recognitionSessions.filter(session => session.itemId === id && session.settledAt).map(session => `<p class="tiny zh">${ago(session.settledAt)} · 理解自评 · ${session.result === 'understood' ? '看懂了' : '还不熟'}${session.hinted ? ' · 看过解释' : ''}${!session.scheduleApplied ? ' · 原目标记录' : ''}</p><p class="en">${esc(session.sentence)}</p>`).join('') || '<p class="zh dim">还没有理解检查记录</p>'}</details>` : ''}
 
-    <div class="sec" style="margin-top:16px"><span class="eyebrow">复习提示</span><hr/></div>
+    ${!recognition ? `<div class="sec" style="margin-top:16px"><span class="eyebrow">复习提示</span><hr/></div>
     <div class="card flat" style="margin-top:9px">
       <p class="zh" id="is-cue-text">${esc(currentCue.brief)}</p>
       <div class="row" style="margin-top:10px;justify-content:space-between">
         <p class="tiny zh" id="is-cue-status">${hasSpecificReviewCue(i) && i.trigger ? '已保存触发时机与具体提示' : '可补充触发时机与具体提示'}</p>
         <button class="btn btn-ghost btn-sm" id="is-cue-regenerate" type="button">${hasSpecificReviewCue(i) ? '重新生成' : '生成具体提示'}</button>
       </div>
-    </div>
+    </div>` : ''}
 
     <div class="sec" style="margin-top:16px"><span class="eyebrow">我的练习</span><hr/></div>
     ${i.mine.length ? i.mine.map(m => `<div class="li"><div class="grow"><p class="en" style="font-size:14px">${esc(m.text)}</p>
@@ -1307,13 +1328,14 @@ export function itemSheet(id) {
       <button class="btn btn-ghost btn-sm" id="is-ret">${i.status === 'retired' ? '恢复' : '归档'}</button>
     </div>`, () => {
     $('#is-say').addEventListener('click', () => SP.say(i.skeleton));
+    $('#is-goal')?.addEventListener('change', event => { S.setLearningGoal(id, event.target.value); itemSheet(id); });
     $('#is-roleplay')?.addEventListener('click', () => {
       closeSheet();
       go('roleplay', i.id);
     });
     $('#is-used').addEventListener('click', () => { S.markUsedReal(i.id, ''); closeSheet(); toast('已记入真实使用 ✓'); go(location.hash.slice(1) || 'home'); });
     $('#is-ret').addEventListener('click', () => { i.status === 'retired' ? S.revive(i.id) : S.retire(i.id); closeSheet(); toast('已更新'); go(location.hash.slice(1) || 'home'); });
-    $('#is-cue-regenerate').addEventListener('click', async () => {
+    $('#is-cue-regenerate')?.addEventListener('click', async () => {
       const button = $('#is-cue-regenerate');
       const status = $('#is-cue-status');
       button.disabled = true;
@@ -1340,6 +1362,11 @@ export function itemSheet(id) {
     });
     $('#is-drill').addEventListener('click', () => {
       closeSheet();
+      if (i.status === 'retired') S.revive(i.id);
+      if (recognition || i.learningStarted === false || i.materialStatus !== 'ready') {
+        if (i.status === 'familiar') S.restartRecognition(i.id);
+        go('vocabulary', { itemId: i.id }); return;
+      }
       const app = $('#app');
       const cue = cueFor(i);
       const d = drillCard(i, cue, {
@@ -1358,6 +1385,14 @@ export function viewDrillItem(app, id, initialAnswer = '') {
   const item = S.getItem(id);
   if (!item) {
     go('home');
+    return;
+  }
+  if (item.learningGoal === 'recognition') {
+    const card = recognitionCard(item, { sourceId: 'notification', onDone: () => go('home') });
+    app.innerHTML = `<div class="view stack"><button class="link" id="bk">‹ 返回</button>${card.html}</div>`;
+    card.mount();
+    $('#bk', app).onclick = () => go('home');
+    if (initialAnswer) S.removeNotificationReply(item.id, initialAnswer);
     return;
   }
   const notificationSession = S.activePracticeSession(

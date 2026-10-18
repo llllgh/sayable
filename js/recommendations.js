@@ -21,6 +21,7 @@ import {
   selectRemainingRecommendation,
 } from '../src/core/recommendations.ts';
 import { termCategoryLabel } from '../src/core/learning-items.ts';
+import { recognitionCard } from './recognition.js';
 
 let generationPromise = null;
 
@@ -33,6 +34,7 @@ function itemForRecommendation(recommendation) {
   return S.findItemBySkeleton(
     recommendation.skeleton,
     recommendation.kind,
+    recommendation.sense || recommendation.zh,
   ) || null;
 }
 
@@ -42,7 +44,8 @@ function syncPracticedCards(deck) {
     if (recommendation.practicedAt > 0) continue;
     const item = itemForRecommendation(recommendation);
     const practiced = item?.history
-      ?.filter(entry => Number(entry.at) >= deck.generatedAt)
+      ?.filter(entry => Number(entry.at) >= deck.generatedAt && entry.scheduleApplied !== false
+        && (!entry.sessionId || S.getPracticeSession(entry.sessionId)?.source !== 'vocabulary'))
       .sort((left, right) => Number(right.at) - Number(left.at))[0];
     if (practiced) {
       current = S.markRecommendationPracticed(
@@ -66,18 +69,21 @@ async function generateDeck() {
 }
 
 function headerHTML() {
+  const task = S.pendingVocabularyTask();
   return `<div class="page-head today-recommendation-head">
     <div class="page-head-copy">
       <h1 class="h-lg zh">今天</h1>
     </div>
     <button class="btn btn-sm btn-ghost" id="recommend-profile">学习偏好</button>
   </div>
-  ${todayModeHTML('recommendation')}`;
+  ${todayModeHTML('recommendation')}
+  ${task ? `<button class="btn-text" id="recommend-vocabulary">继续学习词汇 · 还有 ${S.remainingVocabulary(task).length} 个</button>` : ''}`;
 }
 
 function bindHeader(app) {
   bindTodayModeControls(app);
   $('#recommend-profile').addEventListener('click', profileSheet);
+  $('#recommend-vocabulary')?.addEventListener('click', () => go('vocabulary', { taskId: S.pendingVocabularyTask()?.id }));
 }
 
 function speakerIcon() {
@@ -124,6 +130,15 @@ function mountPractice(app, recommendation) {
   }
 
   S.markRecommendationCollected(recommendation.id, item.id);
+  S.linkSourceCandidatesToItem(item.id);
+  if (item.learningGoal === 'recognition') {
+    const card = recognitionCard(item, { sourceId: `recommendation:${recommendation.id}`, onDone: () => {
+      S.markRecommendationPracticed(recommendation.id);
+      renderDeck(app, S.todayRecommendationDeck());
+    } });
+    $('#recommend-drill', app).innerHTML = card.html;
+    card.mount(); return;
+  }
   const action = $('#recommend-practice');
   if (action) {
     action.textContent = '练习进行中';

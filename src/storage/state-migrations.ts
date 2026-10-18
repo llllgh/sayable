@@ -14,12 +14,13 @@ import { normalizePracticeSession } from '../core/practice-session';
 import { normalizeRecordStatus } from '../core/library';
 import { normalizeToolTasks } from '../core/tool-tasks';
 import { normalizeLearningItem } from '../core/learning-items';
+import { normalizeVocabularyTask, normalizeRecognitionSession } from '../core/vocabulary';
 import {
   normalizeSourceCandidates,
   normalizeSourceDocuments,
 } from '../core/source-import';
 
-export const CURRENT_STATE_FORMAT_VERSION = 13;
+export const CURRENT_STATE_FORMAT_VERSION = 14;
 
 type JsonRecord = Record<string, unknown>;
 
@@ -217,6 +218,8 @@ export function migratePersistedState(input: unknown): unknown {
       : { title: '', sourceUrl: '', body: '' },
     sourceDocuments: normalizeSourceDocuments(input.sourceDocuments),
     sourceCandidates: normalizeSourceCandidates(input.sourceCandidates),
+    vocabularyTasks: (Array.isArray(input.vocabularyTasks) ? input.vocabularyTasks : []).map(normalizeVocabularyTask).filter(Boolean),
+    recognitionSessions: (Array.isArray(input.recognitionSessions) ? input.recognitionSessions : []).map(normalizeRecognitionSession).filter(Boolean),
     practiceSessions: (Array.isArray(input.practiceSessions)
       ? input.practiceSessions
       : [])

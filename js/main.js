@@ -19,6 +19,7 @@ import {
 } from './views2.js';
 import { viewRecommendations } from './recommendations.js';
 import { viewRoleplay } from './roleplay.js';
+import { viewVocabulary } from './vocabulary.js';
 import { initNetwork } from '../src/platform/network.ts';
 import { initializePlatform } from '../src/platform/lifecycle.ts';
 import { processOutbox } from '../src/outbox.ts';
@@ -41,6 +42,7 @@ const ROUTES = {
   home: viewHome, capture: viewCapture, compress: viewCompress,
   preflight: viewPreflight, library: viewLibrary,
   source: viewSourceImport,
+  vocabulary: viewVocabulary,
   recommend: viewRecommendations,
 };
 
