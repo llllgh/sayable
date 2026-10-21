@@ -19,7 +19,7 @@
 └──────────────────────────────────────────────┘
                      │ HTTPS（直连，无中间服务器）
                      ▼
-        用户自己配置的 OpenAI-compatible 接入点
+        用户配置的模型接入点（含 Gemini 原生协议）
 ```
 
 **无服务端。** 唯一曾经需要服务端的理由是推送，本地通知已经覆盖。
@@ -42,7 +42,7 @@ sayable/
 │  │  ├─ item.ts             # 骨架实体与状态机
 │  │  └─ profile.ts
 │  ├─ llm/
-│  │  ├─ provider.ts         # 协议适配：chat_completions / anthropic / responses
+│  │  ├─ provider.ts         # 协议适配：chat_completions / anthropic_messages / responses / gemini
 │  │  ├─ client.ts           # 超时、重试、错误分级、JSON 容错解析
 │  │  ├─ schema.ts           # 输出契约校验（zod）
 │  │  └─ prompts/            # 每个任务一个文件，版本化
@@ -205,29 +205,39 @@ export function isOwned(box: number, realUse: number) {
 ### 6.1 Provider 适配
 
 ```ts
-type Protocol = 'chat_completions' | 'anthropic_messages' | 'responses';
+type Protocol = 'chat_completions' | 'anthropic_messages' | 'responses' | 'gemini';
 interface ProviderConfig {
   protocol: Protocol; baseUrl: string; apiKey: string; model: string;
-  supportsJsonMode?: boolean;  // 由自检探测，不让用户填
-  timeoutMs: number;           // 默认 30000
+  supportsJsonMode?: boolean | null; // 由自检探测，不让用户填
+  timeoutMs: number;                // 默认 60000
+  maxRetry: number;
 }
 ```
 
-三种协议只在 `request()` 和 `extractText()` 两个函数里有分支，其余共用。
+四种协议的 URL、鉴权、请求体、文本及截断解析集中在 `src/llm/provider.ts`；结构化契约、格式修复及业务调用共用。
+
+Google Gemini 使用 `https://generativelanguage.googleapis.com/v1beta` 为官方 Base URL，请求路径为 `/models/{model}:generateContent`，模型名自动去除可选的 `models/` 前缀并编码。Key 仅放在 `x-goog-api-key` 请求头，不写入 URL。
+
+系统消息转换为 `systemInstruction.parts`，其余消息转换为 `contents[].parts`，assistant 角色转换为 model，连续同角色合并为同一轮。温度和输出预算写入 `generationConfig`；JSON 模式使用 `responseMimeType: "application/json"`。读取首个 candidate 的文本 parts，排除思考摘要；`MAX_TOKENS` 返回截断错误，内容拦截返回可操作错误，不用残缺输出修复 JSON。用 `usageMetadata` 统计 token。
+
+海外 Google Profile 已切换至原生协议；旧版自定义 Chat Completions 配置保留原协议，不根据域名自动改写。Android 和 Web 共用请求体，分别通过 Capacitor HTTP 与 fetch 发送。
 
 ### 6.2 自检（首启唯一一次配置的核心体验）
 
 ```
 POST {baseUrl}/chat/completions
 body: { model, messages:[{role:'user',content:'Reply with {"ok":true} only.'}],
-        response_format:{type:'json_object'}, max_tokens: 20 }
+        response_format:{type:'json_object'}, max_tokens: 4096 }
 ```
 
-- 200 且能解析 JSON → `supportsJsonMode = true`，配置完成。
-- 200 但不是 JSON / 400 提示不支持 `response_format` → 去掉该字段重试一次，成功则 `supportsJsonMode = false`（走容错解析）。
-- 401/403 → 「Key 不对或没权限」。
+以上是 Chat Completions 示例。自检按所选协议发送，统一使用 4,096 输出预算与默认 60 秒超时；Gemini 发送 `contents` 和 `generationConfig`，不发送 `messages` 或 `max_tokens`。
+
+- JSON 模式返回 `{"ok":true}` 并通过契约 → `supportsJsonMode = true`，配置完成。
+- 输出格式不符 / 接口拒绝 JSON 参数 → 去掉该参数重试一次，成功则 `supportsJsonMode = false`（走容错解析）；Anthropic 直接使用普通输出探测。
+- 401/403 或 Google 400 `API_KEY_INVALID` → 「Key 不对或没权限」。
+- 地区不支持 → 明确提示地区限制；该错误优先于 403 鉴权分类。
 - 404 或 `model is not allowed` → 「接入点通了，但这个模型名不可用」，并提示常见写法（有些网关要填 endpoint id 而非模型名）。
-- 超时 → 「接入点无响应，检查 base URL 是否带 `/v1`」。
+- 超时 → 检查网络及 Base URL；OpenAI 兼容接口通常带 `/v1`，Google 原生接口使用 `/v1beta`。
 
 **每一条错误都必须给出下一步动作。** 这是「只配一个接入点」能否真的成立的全部难点。
 

@@ -32,12 +32,12 @@ describe('text provider profiles', () => {
       .toBe('modelark-cn');
   });
 
-  it('calls the official Gemini OpenAI-compatible endpoint', async () => {
+  it('calls the official Gemini native endpoint', async () => {
     const fetchMock = vi.fn(async (..._args: any[]) => ({
       status: 200,
       text: async () => JSON.stringify({
-        choices: [{ message: { content: '{"ok":true}' } }],
-        usage: { total_tokens: 12 },
+        candidates: [{ finishReason: 'STOP', content: { parts: [{ text: '{"ok":true}' }] } }],
+        usageMetadata: { totalTokenCount: 12 },
       }),
     }));
     vi.stubGlobal('fetch', fetchMock);
@@ -56,13 +56,15 @@ describe('text provider profiles', () => {
     expect(fetchMock).toHaveBeenCalledOnce();
     const [url, request] = fetchMock.mock.calls[0] as [string, RequestInit];
     expect(url).toBe(
-      'https://generativelanguage.googleapis.com/v1beta/openai/chat/completions',
+      'https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent',
     );
     const headers = request.headers as Record<string, string>;
-    expect(headers.Authorization).toBe('Bearer test-gemini-key');
+    expect(headers['x-goog-api-key']).toBe('test-gemini-key');
+    expect(headers.Authorization).toBeUndefined();
+    expect(url).not.toContain('test-gemini-key');
     expect(JSON.parse(String(request.body))).toMatchObject({
-      model: 'gemini-3.8-flash',
-      response_format: { type: 'json_object' },
+      contents: [{ role: 'user', parts: [{ text: 'Return JSON.' }] }],
+      generationConfig: { responseMimeType: 'application/json' },
     });
   });
 
@@ -124,6 +126,12 @@ describe('text provider profiles', () => {
   });
 
   it.each([
+    {
+      protocol: 'gemini' as const,
+      data: {
+        candidates: [{ finishReason: 'MAX_TOKENS', content: { parts: [{ text: '{"ok":true}' }] } }],
+      },
+    },
     {
       protocol: 'responses' as const,
       data: {

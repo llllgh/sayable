@@ -9,11 +9,11 @@ Android 包名、数据库名和安全存储前缀保持原值；显示名称统
 
 ## 安装 Android 版
 
-当前版本：[Locue Android v0.4.6](https://github.com/llllgh/sayable/releases/tag/v0.4.6)。
-可直接[下载已签名 APK](https://github.com/llllgh/sayable/releases/download/v0.4.6/app-release.apk)，覆盖安装既有 Release 版。
+当前公开版本：[Locue Android v0.4.7](https://github.com/llllgh/sayable/releases/tag/v0.4.7)。
+可直接[下载已签名 APK](https://github.com/llllgh/sayable/releases/download/v0.4.7/app-release.apk)，覆盖安装既有 Release 版。
 
 本版支持从长文本导入后挑选词汇，按“看懂即可”或“希望会用”立即学习和复习。
-自动化与真实模型词汇回归已通过；完整 Android 词汇交互、v14 设备覆盖升级和隔日学习观察仍待验收，详情见发布说明。
+自动化、中转与 Google 原厂词汇回归、Android 模拟器覆盖升级和理解学习闭环已通过；完整主动产出交互、实体设备矩阵和隔日学习观察仍待验收，详情见发布说明。
 
 已签名的 APK：
 
@@ -30,7 +30,18 @@ adb install -r android/app/build/outputs/apk/release/app-release.apk
 
 首次打开时选择“中国大陆 / 海外”，并分别填写空白的模型 API Key 和语音 API Key。应用会验证文本模型、ASR 鉴权和 TTS，全部成功后才保存凭证并进入主界面。协议、公共 Base URL 和公共模型名由区域 Profile 管理，不会从本机构建环境读取私人接入参数。高级自定义配置默认折叠，其中的用户输入框在首次启动时为空。
 
-应用支持 Chat Completions、Responses API 和 Anthropic Messages 兼容接口。需要使用其他兼容服务时，可以在设置页展开高级模型配置。
+应用支持 Chat Completions、Responses API、Anthropic Messages 和 Google Gemini 原生协议。需要使用自定义服务时，可以在设置页展开高级模型配置。
+
+Google 原生协议从 0.4.7 / versionCode 20 开始提供。海外的 Google Gemini 默认配置已切换至原生接口；高级配置中也可选择：
+
+- 协议：`Google Gemini`
+- Base URL：`https://generativelanguage.googleapis.com/v1beta`
+- 模型名：填写 Google AI Studio 中当前可用的模型标识，无需附加请求路径
+- API Key：Google AI Studio 创建的 Gemini API Key
+
+应用自动拼接 `models/{模型名}:generateContent`，通过请求头传递 Key。使用中转服务时，协议、地址、模型名和 Key 必须与该服务匹配；OpenAI 兼容中转继续选择 Chat Completions。
+
+0.4.7 的 221 项自动化测试、配置保存/刷新恢复，以及中转和 Google 原厂直连的 Gemini 原生协议词汇回归已通过。Android 16 模拟器已从 0.4.4 覆盖升级到 0.4.7，验证旧数据保留、原厂自检、导入选词、理解学习闭环和冷启动后的草稿/安全凭据恢复。实体设备及完整主动产出交互仍待验收，具体范围见 `docs/PRD.md` 第 11.6 节。
 
 ## 语音模式
 

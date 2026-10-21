@@ -1390,14 +1390,17 @@ export function settingsSheet(onChange) {
     </label>
     <details class="advanced" ${s.providerMode === 'custom' ? 'open' : ''}>
       <summary>高级模型配置</summary>
-      <label class="toggle-row"><span><b>覆盖区域默认值</b><small>只用于自定义兼容接入点</small></span>
+      <label class="toggle-row"><span><b>覆盖区域默认值</b><small>用于自定义模型接入点</small></span>
         <input type="checkbox" id="s-custom" ${s.providerMode === 'custom' ? 'checked' : ''} /></label>
       <label class="fld"><span>协议</span><select id="s-proto">
         <option value="chat_completions" ${s.protocol === 'chat_completions' ? 'selected' : ''}>Chat Completions</option>
         <option value="responses" ${s.protocol === 'responses' ? 'selected' : ''}>Responses API</option>
         <option value="anthropic_messages" ${s.protocol === 'anthropic_messages' ? 'selected' : ''}>Anthropic Messages</option>
+        <option value="gemini" ${s.protocol === 'gemini' ? 'selected' : ''}>Google Gemini</option>
       </select></label>
-      <label class="fld"><span>Base URL</span><input type="url" id="s-url" value="${esc(s.baseUrl)}" placeholder="输入自定义 Base URL" /></label>
+      <label class="fld"><span>Base URL</span><input type="url" id="s-url" value="${esc(s.baseUrl)}" placeholder="输入自定义 Base URL" />
+        <small id="s-gemini-help" ${s.protocol === 'gemini' ? '' : 'hidden'}>Google 原生接口填 https://generativelanguage.googleapis.com/v1beta；模型名无需填写请求路径。</small>
+      </label>
       <label class="fld"><span>模型名 / Endpoint ID</span><input type="text" id="s-mdl" value="${esc(s.model)}" placeholder="输入自定义模型标识" /></label>
     </details>
     <div class="row"><button class="btn btn-pri grow" id="s-test">测一下并保存</button><button class="btn btn-ghost" id="s-save">仅保存</button></div>
@@ -1483,6 +1486,9 @@ export function settingsSheet(onChange) {
       await updateTextProviderFields();
     });
     $('#s-custom').addEventListener('change', updateTextProviderFields);
+    $('#s-proto').addEventListener('change', () => {
+      $('#s-gemini-help').hidden = $('#s-proto').value !== 'gemini';
+    });
     $$('#s-voice-mode [data-mode]').forEach(button => button.addEventListener('click', () => {
       voiceMode = button.dataset.mode;
       $$('#s-voice-mode [data-mode]').forEach(item => item.classList.toggle(

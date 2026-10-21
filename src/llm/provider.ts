@@ -5,7 +5,8 @@ import { LLM_OUTPUT_TOKENS } from './budgets';
 export type LlmProtocol =
   | 'chat_completions'
   | 'responses'
-  | 'anthropic_messages';
+  | 'anthropic_messages'
+  | 'gemini';
 
 export interface ProviderConfig {
   protocol: LlmProtocol;
@@ -45,6 +46,12 @@ function endpoint(baseUrl: string, suffix: string): string {
 }
 
 function jsonHeaders(config: ProviderConfig): Record<string, string> {
+  if (config.protocol === 'gemini') {
+    return {
+      'Content-Type': 'application/json',
+      'x-goog-api-key': config.apiKey,
+    };
+  }
   if (config.protocol === 'anthropic_messages') {
     return {
       'Content-Type': 'application/json',
@@ -65,6 +72,29 @@ function requestBody(
 ): Record<string, unknown> {
   const temperature = options.temperature ?? 0.35;
   const maxTokens = options.maxTokens ?? LLM_OUTPUT_TOKENS.providerDefault;
+
+  if (config.protocol === 'gemini') {
+    const system = messages
+      .filter(message => message.role === 'system')
+      .map(message => message.content)
+      .join('\n\n');
+    const contents: Array<{ role: 'user' | 'model'; parts: Array<{ text: string }> }> = [];
+    for (const message of messages.filter(message => message.role !== 'system')) {
+      const role = message.role === 'assistant' ? 'model' : 'user';
+      const previous = contents[contents.length - 1];
+      if (previous?.role === role) previous.parts.push({ text: message.content });
+      else contents.push({ role, parts: [{ text: message.content }] });
+    }
+    return {
+      contents,
+      ...(system ? { systemInstruction: { parts: [{ text: system }] } } : {}),
+      generationConfig: {
+        temperature,
+        maxOutputTokens: maxTokens,
+        ...(options.jsonMode ? { responseMimeType: 'application/json' } : {}),
+      },
+    };
+  }
 
   if (config.protocol === 'responses') {
     const system = messages
@@ -118,6 +148,12 @@ function requestBody(
 }
 
 function requestUrl(config: ProviderConfig): string {
+  if (config.protocol === 'gemini') {
+    const base = config.baseUrl.trim().replace(/\/+$/, '').replace(/\/models$/, '');
+    const model = config.model.trim().replace(/^models\//, '');
+    if (!model) throw new LlmError('configuration');
+    return `${base}/models/${encodeURIComponent(model)}:generateContent`;
+  }
   if (config.protocol === 'responses') return endpoint(config.baseUrl, 'responses');
   if (config.protocol === 'anthropic_messages') return endpoint(config.baseUrl, 'messages');
   return endpoint(config.baseUrl, 'chat/completions');
@@ -173,6 +209,10 @@ function stringifyDetail(data: unknown): string {
 }
 
 function truncationReason(config: ProviderConfig, data: any): string | null {
+  if (config.protocol === 'gemini') {
+    const reason = String(data?.candidates?.[0]?.finishReason || '').toUpperCase();
+    return reason === 'MAX_TOKENS' ? reason : null;
+  }
   if (config.protocol === 'responses') {
     const reason = String(data?.incomplete_details?.reason || '').toLowerCase();
     if (
@@ -194,6 +234,23 @@ function truncationReason(config: ProviderConfig, data: any): string | null {
 }
 
 function extractText(config: ProviderConfig, data: any): string {
+  if (config.protocol === 'gemini') {
+    const candidate = data?.candidates?.[0];
+    const reason = String(candidate?.finishReason || '').toUpperCase();
+    if (data?.promptFeedback?.blockReason || [
+      'SAFETY', 'RECITATION', 'BLOCKLIST', 'PROHIBITED_CONTENT', 'SPII',
+      'IMAGE_SAFETY', 'IMAGE_PROHIBITED_CONTENT',
+    ].includes(reason)) {
+      throw new LlmError('blocked_output', String(data?.promptFeedback?.blockReason || reason));
+    }
+    if (reason && reason !== 'STOP') {
+      throw new LlmError('invalid_output', `Gemini finishReason: ${reason}`);
+    }
+    return (candidate?.content?.parts || [])
+      .filter((part: any) => part?.thought !== true && typeof part?.text === 'string')
+      .map((part: any) => part.text)
+      .join('');
+  }
   if (config.protocol === 'responses') {
     if (typeof data?.output_text === 'string') return data.output_text;
     const parts = (data?.output || [])
@@ -219,7 +276,13 @@ function extractText(config: ProviderConfig, data: any): string {
 
 function extractTokens(data: any): number {
   return Number(
-    data?.usage?.total_tokens
+    data?.usageMetadata?.totalTokenCount
+    ?? (data?.usageMetadata ? (
+      Number(data.usageMetadata.promptTokenCount ?? 0)
+      + Number(data.usageMetadata.candidatesTokenCount ?? 0)
+      + Number(data.usageMetadata.thoughtsTokenCount ?? 0)
+    ) : undefined)
+    ?? data?.usage?.total_tokens
     ?? data?.usage?.totalTokens
     ?? (
       Number(data?.usage?.input_tokens ?? 0)

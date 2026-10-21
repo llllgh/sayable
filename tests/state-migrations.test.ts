@@ -239,8 +239,20 @@ describe('persisted state migration', () => {
       textProviderId: 'google-gemini',
       baseUrl: '',
       model: '',
-      protocol: 'chat_completions',
+      protocol: 'gemini',
     });
+  });
+
+  it.each(['gemini', 'chat_completions'])('preserves custom %s configurations during upgrades', (protocol) => {
+    const settings = {
+      providerMode: 'custom', serviceRegion: 'global',
+      textProviderId: 'google-gemini', protocol,
+      baseUrl: 'https://custom.example/v1beta', model: 'custom-model',
+    };
+    const migrated = migratePersistedState({
+      formatVersion: 13, items: [], settings,
+    }) as Record<string, any>;
+    expect(migrated.settings).toMatchObject(settings);
   });
 
   it('removes legacy hidden request limits', () => {

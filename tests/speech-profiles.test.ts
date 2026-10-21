@@ -19,7 +19,7 @@ describe('service profiles', () => {
     expect(TEXT_PROVIDER_PROFILES['modelark-cn'].baseUrl).toMatch(/^https:\/\//);
     expect(TEXT_PROVIDER_PROFILES['byteplus-global'].baseUrl).toMatch(/^https:\/\//);
     expect(TEXT_PROVIDER_PROFILES['google-gemini'].baseUrl)
-      .toBe('https://generativelanguage.googleapis.com/v1beta/openai');
+      .toBe('https://generativelanguage.googleapis.com/v1beta');
     expect(TEXT_PROVIDER_PROFILES['modelark-cn'].defaultModel).not.toMatch(/^ep-/);
     expect(TEXT_PROVIDER_PROFILES['byteplus-global'].defaultModel).not.toMatch(/^ep-/);
     expect(TEXT_PROVIDER_PROFILES['google-gemini'].defaultModel)

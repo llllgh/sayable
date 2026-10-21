@@ -24,13 +24,15 @@ describe.skipIf(process.env.LOCUE_VOCABULARY_LIVE !== '1')('live vocabulary serv
     Object.assign(S.state.settings, {
       providerMode: 'custom', apiKey: process.env[`${prefix}_API_KEY`],
       baseUrl: process.env.LOCUE_VOCABULARY_BASE_URL || process.env[`${prefix}_BASE_URL`],
-      model: process.env.LOCUE_VOCABULARY_MODEL || process.env[`${prefix}_MODEL_ID`], protocol: 'chat_completions', maxRetry: 0, dailyLimit: 60,
+      model: process.env.LOCUE_VOCABULARY_MODEL || process.env[`${prefix}_MODEL_ID`],
+      protocol: process.env.LOCUE_VOCABULARY_PROTOCOL || process.env[`${prefix}_PROTOCOL`] || 'chat_completions',
+      maxRetry: 0, dailyLimit: 60,
       supportsJsonMode: process.env.LOCUE_VOCABULARY_JSON_MODE === '0' ? false : null,
     });
     S.state.log = [];
     const outputDirectory = process.env.LOCUE_VOCABULARY_OUTPUT_DIR || join(tmpdir(), 'locue-vocabulary-validation');
     mkdirSync(outputDirectory, { recursive: true });
-    const evidence: Record<string, unknown> = { transcript };
+    const evidence: Record<string, unknown> = { transcript, protocol: S.state.settings.protocol };
     const persistEvidence = () => writeFileSync(join(outputDirectory, 'cloud.json'), JSON.stringify(evidence, null, 2));
     const fetchOriginal = globalThis.fetch.bind(globalThis);
     const rawExtraction: unknown[] = [];
@@ -38,6 +40,11 @@ describe.skipIf(process.env.LOCUE_VOCABULARY_LIVE !== '1')('live vocabulary serv
       const response = await fetchOriginal(...args);
       const body = await response.clone().json().catch(() => null);
       if (body?.choices?.[0]?.message?.content) rawExtraction.push(body.choices[0].message.content);
+      if (body?.candidates?.[0]?.content?.parts) {
+        rawExtraction.push(body.candidates[0].content.parts
+          .filter((part: { thought?: boolean; text?: unknown }) => !part.thought && typeof part.text === 'string')
+          .map((part: { text: string }) => part.text).join(''));
+      }
       return response;
     });
     let extracted;
