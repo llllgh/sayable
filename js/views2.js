@@ -933,6 +933,9 @@ export function viewLibrary(app, arg = {}) {
     </div>
 
     <section class="library-tools" aria-label="表达工具">
+      <button type="button" data-nav="problems">
+        <span class="grow"><strong>表达问题档案</strong><small>确认重复反馈，换场景练习</small></span><span aria-hidden="true">›</span>
+      </button>
       <button type="button" data-nav="source">
         <span class="grow"><strong>导入长文本</strong><small>挑选生词，立即学习</small></span><span aria-hidden="true">›</span>
       </button>

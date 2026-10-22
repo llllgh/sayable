@@ -20,6 +20,7 @@ import {
 import { viewRecommendations } from './recommendations.js';
 import { viewRoleplay } from './roleplay.js';
 import { viewVocabulary } from './vocabulary.js';
+import { viewProblems, viewProblemPractice } from './problems.js';
 import { initNetwork } from '../src/platform/network.ts';
 import { initializePlatform } from '../src/platform/lifecycle.ts';
 import { processOutbox } from '../src/outbox.ts';
@@ -43,6 +44,8 @@ const ROUTES = {
   preflight: viewPreflight, library: viewLibrary,
   source: viewSourceImport,
   vocabulary: viewVocabulary,
+  problems: viewProblems,
+  'problem-practice': viewProblemPractice,
   recommend: viewRecommendations,
 };
 

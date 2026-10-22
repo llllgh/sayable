@@ -10,6 +10,7 @@ import {
   termAppearsInSentence,
 } from '../core/learning-items';
 import { sourceCandidateGrounded } from '../core/source-import';
+import { normalizeProblemTags, type ProblemEvidence } from '../core/expression-problems';
 
 const nullableText = z.string().nullable().optional();
 const nullWhenMissing = (field: string) => (value: unknown) => (
@@ -258,6 +259,26 @@ export function reviewCueSchemaFor(item: {
   });
 }
 
+export function problemCueSchemaFor(
+  item: Parameters<typeof reviewCueSchemaFor>[0], evidence: ProblemEvidence[],
+) {
+  return reviewCueSchemaFor({
+    ...item, seeds: [...(Array.isArray(item.seeds) ? item.seeds : []),
+      ...evidence.flatMap(entry => [entry.answer, entry.suggestion]).filter(Boolean)],
+  }).superRefine((value, context) => {
+    for (const field of ['brief', 'target_zh', 'trigger'] as const) {
+      if (!/[\u3400-\u9fff]/u.test(value[field]) || /[A-Za-z]{2,}/u.test(value[field])) {
+        context.addIssue({ code: 'custom', path: [field], message: 'task must use Chinese without revealing the English target' });
+      }
+    }
+    if (evidence.some(entry =>
+      (entry.targetZh && !drillDiffersFromExample(entry.targetZh, value.target_zh))
+      || (entry.brief && !drillDiffersFromExample(entry.brief, value.brief)))) {
+      context.addIssue({ code: 'custom', path: ['brief'], message: 'problem practice must differ from evidence tasks' });
+    }
+  });
+}
+
 export const judgeSchema = z.object({
   ok: z.boolean(),
   used_target: z.boolean(),
@@ -269,6 +290,7 @@ export const judgeSchema = z.object({
   fix: nullableText,
   tighter: nullableText,
   note: z.string().catch(''),
+  problem_tags: z.unknown().optional().transform(normalizeProblemTags),
 }).passthrough().transform((value) => ({
   ...value,
   feedback_kind: String(value.fix || '').trim()

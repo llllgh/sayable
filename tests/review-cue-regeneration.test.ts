@@ -75,7 +75,7 @@ describe('review cue regeneration', () => {
     expect(view).toContain('regenerateCueForItem');
     expect(llm).toContain('export async function regenerateReviewCue');
     expect(llm).toContain('reviewCueSchemaFor(item || {})');
-    expect(llm).toContain("task: 'review_cue'");
+    expect(llm).toContain("task: problem ? 'problem_cue' : 'review_cue'");
     expect(store).toContain('export function setItemDrill');
     expect(view).toContain("it.drill?.answer || support.example");
   });

@@ -10,6 +10,7 @@ import { recommendationProgress } from '../src/core/recommendations.ts';
 import { reviewSupport } from '../src/core/review-support.ts';
 import { termCategoryLabel } from '../src/core/learning-items.ts';
 import { recognitionCard } from './recognition.js';
+import { PROBLEM_CATEGORIES } from '../src/core/expression-problems.ts';
 import {
   buildReviewCue,
   hasSpecificReviewCue,
@@ -77,12 +78,14 @@ export function drillCard(it, cue, opts = {}) {
   let referenceAnswer = opts.referenceAnswer || it.drill?.answer || support.example;
   const guided = support.mode === 'guided';
   const needsSpecificCue = !hasSpecificReviewCue(it);
-  const session = S.ensurePracticeSession(it.id, {
+  const session = S.getPracticeSession(opts.sessionId) || S.ensurePracticeSession(it.id, {
     source: opts.sessionSource || 'practice',
     sourceId: opts.sessionSourceId || it.id,
     cue,
     answer: opts.initialAnswer || '',
   });
+  referenceAnswer = session.problemFocus?.referenceAnswer || referenceAnswer;
+  const problemFocus = PROBLEM_CATEGORIES.find(category => category.id === session.problemFocus?.category);
   let activeCue = {
     brief: session.cue.brief || cue.brief || '',
     ctx: session.cue.context || cue.ctx || '',
@@ -100,7 +103,8 @@ export function drillCard(it, cue, opts = {}) {
       <p class="tiny zh drill-trigger" id="${id}-trigger" ${activeCue.trigger ? '' : 'hidden'}>触发时机：${esc(activeCue.trigger)}</p>
       ${opts.compact ? `<button class="btn btn-pri btn-blk drill-expand" id="${id}-expand" aria-expanded="false" aria-controls="${id}-answer">说一句试试 <svg viewBox="0 0 24 24" class="ic" aria-hidden="true"><path d="M4 12h16m-6-6 6 6-6 6"/></svg></button>` : ''}
       <div id="${id}-answer" ${opts.compact ? 'hidden' : ''}>
-      ${needsSpecificCue || guided ? `<button class="btn-text" id="${id}-regen-cue" type="button">${needsSpecificCue ? '生成更具体的提示' : '换一个练习场景'}</button>` : ''}
+      ${!problemFocus && (needsSpecificCue || guided) ? `<button class="btn-text" id="${id}-regen-cue" type="button">${needsSpecificCue ? '生成更具体的提示' : '换一个练习场景'}</button>` : ''}
+      ${problemFocus ? `<p class="tiny zh problem-focus">${esc(problemFocus.focus)}</p>` : ''}
       ${guided ? `<div class="drill-guide">
         <div class="row" style="justify-content:space-between;align-items:flex-start">
           <div class="grow">
@@ -332,6 +336,7 @@ export function drillCard(it, cue, opts = {}) {
                 brief: activeCue.brief,
                 answer: revisedAnswer,
                 seeds: it.seeds,
+                problemFocus: problemFocus?.focus || '',
               });
               const revisedFeedback = buildJudgementFeedback(
                 revisedAnswer,
@@ -480,6 +485,7 @@ export function drillCard(it, cue, opts = {}) {
           brief: activeCue.brief,
           answer: ans,
           seeds: it.seeds,
+          problemFocus: problemFocus?.focus || '',
         });
       } catch (e) {
         S.failPracticeAttempt(session.id, attempt.id, L.userMessage(e));
@@ -748,6 +754,18 @@ function reviewCompletionHTML(dueCount, recommendationProgressState, paused) {
   </section>`;
 }
 
+export function problemEntryHTML() {
+  const pending = S.pendingProblemPractice();
+  const count = S.expressionProblems().length;
+  return pending || count
+    ? `<button class="btn-text problem-entry" data-problem-entry>${pending
+      ? '继续针对性练习' : `表达问题档案 · ${count} 类重复反馈`} <span aria-hidden="true">›</span></button>` : '';
+}
+export function bindProblemEntry(app) {
+  $('[data-problem-entry]', app)?.addEventListener('click',
+    () => go(S.pendingProblemPractice() ? 'problem-practice' : 'problems'));
+}
+
 export function viewHome(app) {
   const due = S.dueItems();
   const vocabularyTask = S.pendingVocabularyTask();
@@ -796,6 +814,7 @@ export function viewHome(app) {
       <div class="page-head-copy"><h1 class="h-lg zh">今天</h1></div>
     </div>
     ${todayModeHTML('review')}
+    ${problemEntryHTML()}
     ${vocabularyTask ? `<button class="btn-text" id="vocabulary-continue">继续学习词汇 · 还有 ${S.remainingVocabulary(vocabularyTask).length} 个</button>` : ''}
     ${item && !reviewGroup.paused ? `<div class="today-group-progress">
       <span>本组 ${reviewGroup.index + 1} / ${reviewGroup.ids.length}</span>
@@ -811,6 +830,7 @@ export function viewHome(app) {
   </div>`;
 
   bindTodayModeControls(app);
+  bindProblemEntry(app);
   $('#vocabulary-continue', app)?.addEventListener('click', () => go('vocabulary', { taskId: vocabularyTask.id }));
   $('#review-stop', app)?.addEventListener('click', () => {
     if (!reviewGroup) reviewGroup = { ids: [], index: 0, paused: true };

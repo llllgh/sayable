@@ -9,13 +9,13 @@ Android 包名、数据库名和安全存储前缀保持原值；显示名称统
 
 ## 安装 Android 版
 
-当前公开版本：[Locue Android v0.4.7](https://github.com/llllgh/sayable/releases/tag/v0.4.7)。
-可直接[下载已签名 APK](https://github.com/llllgh/sayable/releases/download/v0.4.7/app-release.apk)，覆盖安装既有 Release 版。
+当前公开版本：[Locue Android v0.4.8](https://github.com/llllgh/sayable/releases/tag/v0.4.8)，versionCode 21。
+可直接[下载已签名 APK](https://github.com/llllgh/sayable/releases/download/v0.4.8/app-release.apk)，签名与上一版一致。
 
-本版支持从长文本导入后挑选词汇，按“看懂即可”或“希望会用”立即学习和复习。
-自动化、中转与 Google 原厂词汇回归、Android 模拟器覆盖升级和理解学习闭环已通过；完整主动产出交互、实体设备矩阵和隔日学习观察仍待验收，详情见发布说明。
+本版新增个人表达问题档案与针对性练习：确认重复反馈后，使用相关表达或词汇完成新场景练习。
+237 项自动化、真实 Gemini 中转模型闭环及隔离浏览器交互已通过；本轮 Android 覆盖升级、语音和软键盘交互仍待设备验收，详情见发布说明。
 
-已签名的 APK：
+本地已签名的 APK：
 
 `android/app/build/outputs/apk/release/app-release.apk`
 
@@ -42,6 +42,20 @@ Google 原生协议从 0.4.7 / versionCode 20 开始提供。海外的 Google Ge
 应用自动拼接 `models/{模型名}:generateContent`，通过请求头传递 Key。使用中转服务时，协议、地址、模型名和 Key 必须与该服务匹配；OpenAI 兼容中转继续选择 Chat Completions。
 
 0.4.7 的 221 项自动化测试、配置保存/刷新恢复，以及中转和 Google 原厂直连的 Gemini 原生协议词汇回归已通过。Android 16 模拟器已从 0.4.4 覆盖升级到 0.4.7，验证旧数据保留、原厂自检、导入选词、理解学习闭环和冷启动后的草稿/安全凭据恢复。实体设备及完整主动产出交互仍待验收，具体范围见 `docs/PRD.md` 第 11.6 节。
+
+## 表达问题档案与针对性练习
+
+从“表达库 → 表达问题档案”进入。模型首答中有证据的反馈按“语法与句式、用词准确、固定搭配、表达精简、目标表达调用”归类；同类至少出现在两次不同练习中才列为重复反馈。可以展开原题和答案，确认、修改归类或忽略。旧反馈没有可靠分类时不会猜测语言错误。
+
+确认至少两次不同练习的证据后，点击“开始针对性练习”，使用相关表达或词汇完成新的场景句子。原题保持原样，任务和草稿可以续做；重答仅结算一次，只查看答案不计为完成，完成次数不代表问题已解决。今天页面也提供档案或未完成任务的紧凑入口。
+
+0.4.8 的 237 项自动化、类型检查、生产构建、真实 Gemini 中转模型闭环及隔离浏览器交互已通过。Google 原厂本轮受地区限制，Android 升级、语音和软键盘交互尚待设备验收。完整范围见 `docs/PRD.md` 第 11.8 节。
+
+显式运行真实模型回归（使用本地 `.env`，不打印凭据）：
+
+```bash
+LOCUE_PROBLEMS_LIVE=1 LOCUE_PROBLEMS_PROVIDER=relay npx vitest run scripts/problems-cloud.test.ts
+```
 
 ## 语音模式
 

@@ -100,6 +100,10 @@ import {
   emptyRecognition, nextRecognition, normalizeLearningGoal,
   normalizeVocabularyTask, normalizeRecognitionSession,
 } from '../src/core/vocabulary.ts';
+import {
+  isProblemCategory, normalizeProblemDecisions, normalizeProblemPractice,
+  problemEvidence, problemGroups,
+} from '../src/core/expression-problems.ts';
 
 const KEY = 'sayable.v1';
 const WEEK = 7 * 864e5;
@@ -143,6 +147,8 @@ export const state = {
   recognitionSessions: /** @type {any[]} */ ([]),
   vocabularyView: null,
   practiceSessions: /** @type {any[]} */ ([]),
+  problemDecisions: /** @type {any[]} */ ([]),
+  problemPractice: /** @type {any} */ (null),
   roleplaySessions: /** @type {any[]} */ ([]),
   dailyRecommendations: null,
   settings: {
@@ -205,6 +211,8 @@ function persistableState() {
     recognitionSessions: state.recognitionSessions,
     vocabularyView: state.vocabularyView,
     practiceSessions: state.practiceSessions,
+    problemDecisions: state.problemDecisions,
+    problemPractice: state.problemPractice,
     roleplaySessions: state.roleplaySessions,
     dailyRecommendations: state.dailyRecommendations,
     settings,
@@ -278,6 +286,8 @@ function hydrate(d) {
       .filter(Boolean)
       .slice(-200)
     : [];
+  state.problemDecisions = normalizeProblemDecisions(d?.problemDecisions);
+  state.problemPractice = normalizeProblemPractice(d?.problemPractice);
   state.roleplaySessions = Array.isArray(d?.roleplaySessions)
     ? d.roleplaySessions
       .map(normalizeRoleplaySession)
@@ -1516,6 +1526,97 @@ export function completeRoleplayRetry(sessionId, value) {
   track('roleplay_retry', session.id);
   save();
   return session;
+}
+
+/* ---------------- 表达问题档案与独立迁移练习 ---------------- */
+export function expressionProblems() {
+  return problemGroups(state.practiceSessions, state.problemDecisions);
+}
+export function expressionProblemEvidence() {
+  return problemEvidence(state.practiceSessions, state.problemDecisions);
+}
+export function decideExpressionProblem(evidenceId, action, category) {
+  const entry = expressionProblemEvidence().find(entry => entry.id === evidenceId);
+  if (!entry || !['confirm', 'ignore'].includes(action) || !isProblemCategory(category)) return false;
+  state.problemDecisions = normalizeProblemDecisions([
+    ...state.problemDecisions, { evidenceId, action, category, at: now() },
+  ]);
+  save();
+  return true;
+}
+export function confirmExpressionProblem(category) {
+  const group = expressionProblems().find(group => group.id === category);
+  if (!group) return;
+  state.problemDecisions = normalizeProblemDecisions([
+    ...state.problemDecisions,
+    ...group.entries.map(entry => ({ evidenceId: entry.id, action: 'confirm', category, at: now() })),
+  ]);
+  save();
+}
+export function problemPracticeItem(group) {
+  for (const entry of group?.entries || []) {
+    if (!entry.confirmed) continue;
+    const item = getItem(entry.itemId);
+    if (item && item.status !== 'retired' && item.learningGoal !== 'recognition') return item;
+  }
+  return null;
+}
+export function pendingProblemPractice() {
+  const task = state.problemPractice;
+  if (!task) return null;
+  const session = getPracticeSession(task.sessionId);
+  if (task.status === 'ready' && !session) {
+    task.status = 'error'; task.error = '这次练习记录已不可用，请重新出题';
+    task.updatedAt = now(); save();
+  }
+  return session?.completedAt ? null : task;
+}
+export function leaveProblemPractice() {
+  state.problemPractice = null;
+  save();
+}
+export function beginProblemPractice(category) {
+  const pending = pendingProblemPractice();
+  if (pending && pending.status !== 'error') return { task: pending, request: false };
+  const group = expressionProblems().find(group => group.id === category);
+  if (!group?.trainable) throw new Error('请先确认至少两次不同练习的证据');
+  const item = problemPracticeItem(group);
+  if (!item) throw new Error('相关表达已归档或改为“看懂即可”，暂时无法开始产出练习');
+  const task = {
+    id: uid(), category, itemId: item.id, goalRevision: item.goalRevision || 0,
+    evidenceIds: group.entries.filter(entry => entry.confirmed).map(entry => entry.id),
+    requestId: uid(), status: 'generating', sessionId: '', error: '', updatedAt: now(),
+  };
+  state.problemPractice = task;
+  save();
+  return { task, request: true, item, group,
+    evidence: group.entries.filter(entry => entry.confirmed).slice(0, 12) };
+}
+export function completeProblemPracticeCue(requestId, drill) {
+  const task = state.problemPractice;
+  if (!task || task.requestId !== requestId || task.status !== 'generating') return null;
+  const item = getItem(task.itemId);
+  if (!item || item.status === 'retired' || item.learningGoal === 'recognition'
+    || (item.goalRevision || 0) !== task.goalRevision) {
+    failProblemPracticeCue(requestId, '学习条目或目标已变化，请重新选择');
+    return null;
+  }
+  const session = ensurePracticeSession(item.id, {
+    source: 'problem-practice', sourceId: task.id,
+    cue: { brief: drill.brief, target_zh: drill.target_zh, trigger: drill.trigger, ctx: drill.trigger },
+  });
+  session.problemFocus = { category: task.category, evidenceIds: [...task.evidenceIds],
+    referenceAnswer: drill.answer };
+  task.sessionId = session.id;
+  task.status = 'ready'; task.error = ''; task.updatedAt = now();
+  save();
+  return task;
+}
+export function failProblemPracticeCue(requestId, error) {
+  const task = state.problemPractice;
+  if (!task || task.requestId !== requestId || task.status !== 'generating') return;
+  task.status = 'error'; task.error = String(error || '出题失败，请重试'); task.updatedAt = now();
+  save();
 }
 
 /* ---------------- 普通练习会话 ---------------- */

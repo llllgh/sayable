@@ -11,6 +11,7 @@ import {
 } from '../llm/profiles';
 import { normalizeDailyRecommendationDeck } from '../core/recommendations';
 import { normalizePracticeSession } from '../core/practice-session';
+import { normalizeProblemDecisions, normalizeProblemPractice } from '../core/expression-problems';
 import { normalizeRecordStatus } from '../core/library';
 import { normalizeToolTasks } from '../core/tool-tasks';
 import { normalizeLearningItem } from '../core/learning-items';
@@ -20,7 +21,7 @@ import {
   normalizeSourceDocuments,
 } from '../core/source-import';
 
-export const CURRENT_STATE_FORMAT_VERSION = 14;
+export const CURRENT_STATE_FORMAT_VERSION = 15;
 
 type JsonRecord = Record<string, unknown>;
 
@@ -209,6 +210,8 @@ export function migratePersistedState(input: unknown): unknown {
     compressions,
     drafts: migrateDrafts(input.drafts, input.draft),
     toolTasks: normalizeToolTasks(input.toolTasks),
+    problemDecisions: normalizeProblemDecisions(input.problemDecisions),
+    problemPractice: normalizeProblemPractice(input.problemPractice),
     sourceDraft: isRecord(input.sourceDraft)
       ? {
         title: String(input.sourceDraft.title ?? ''),

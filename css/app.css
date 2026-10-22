@@ -824,3 +824,18 @@ ins.judgement-diff-change{background:#D9EEE9;color:var(--acc-d)}
 .vocabulary-candidate .quote,.recognition-card .quote{margin-top:12px}
 .vocabulary-source .selectable{user-select:text!important;-webkit-user-select:text!important;white-space:pre-wrap;max-height:420px;overflow:auto;margin:12px 0}
 .vocabulary-selection-footer{border-top:1px solid var(--line,#dde3e5);padding-top:16px}
+
+.problem-entry{text-align:left;display:flex;justify-content:space-between;gap:12px}
+.problem-group{padding:20px 0;border-top:1px solid var(--line)}
+.problem-group>.tiny{margin-top:6px;margin-bottom:14px}
+.problem-evidence{border-bottom:1px solid var(--line);padding:12px 0;min-width:0}
+.problem-evidence summary{cursor:pointer;overflow-wrap:anywhere}
+.problem-evidence summary>span{font-family:var(--f-en);font-size:15px}
+.problem-evidence summary small{display:block;margin-top:4px;color:var(--fg-3);font-size:12px}
+.problem-evidence>.stack{padding-top:14px;gap:12px}
+.problem-evidence .en{overflow-wrap:anywhere}
+.problem-suggestion{border-left:2px solid var(--acc);padding-left:12px}
+.problem-category{display:flex;align-items:center;gap:12px;font-size:13px}
+.problem-category select{flex:1;min-width:0}
+.problem-group-actions{display:grid;grid-template-columns:repeat(auto-fit,minmax(135px,1fr));gap:8px;margin-top:16px}
+.problem-focus{margin-bottom:12px;color:var(--acc-d)}

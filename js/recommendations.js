@@ -14,6 +14,8 @@ import {
   go,
   setTodayMode,
   todayModeHTML,
+  problemEntryHTML,
+  bindProblemEntry,
 } from './views.js';
 import { profileSheet } from './views2.js';
 import {
@@ -45,7 +47,7 @@ function syncPracticedCards(deck) {
     const item = itemForRecommendation(recommendation);
     const practiced = item?.history
       ?.filter(entry => Number(entry.at) >= deck.generatedAt && entry.scheduleApplied !== false
-        && (!entry.sessionId || S.getPracticeSession(entry.sessionId)?.source !== 'vocabulary'))
+        && (!entry.sessionId || !['vocabulary', 'problem-practice'].includes(S.getPracticeSession(entry.sessionId)?.source)))
       .sort((left, right) => Number(right.at) - Number(left.at))[0];
     if (practiced) {
       current = S.markRecommendationPracticed(
@@ -77,11 +79,13 @@ function headerHTML() {
     <button class="btn btn-sm btn-ghost" id="recommend-profile">学习偏好</button>
   </div>
   ${todayModeHTML('recommendation')}
+  ${problemEntryHTML()}
   ${task ? `<button class="btn-text" id="recommend-vocabulary">继续学习词汇 · 还有 ${S.remainingVocabulary(task).length} 个</button>` : ''}`;
 }
 
 function bindHeader(app) {
   bindTodayModeControls(app);
+  bindProblemEntry(app);
   $('#recommend-profile').addEventListener('click', profileSheet);
   $('#recommend-vocabulary')?.addEventListener('click', () => go('vocabulary', { taskId: S.pendingVocabularyTask()?.id }));
 }

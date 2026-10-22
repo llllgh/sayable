@@ -26,6 +26,7 @@ import {
   captureSchema,
   compressSchema,
   judgeSchema,
+  problemCueSchemaFor,
   preflightSchema,
   recommendationSchemaFor,
   restatementSchema,
@@ -264,7 +265,7 @@ ${text}
 }
 
 /* ---------- 1.1) 为旧条目补具体复习提示 ---------- */
-export async function regenerateReviewCue(item) {
+export async function regenerateReviewCue(item, problem = null) {
   const source = String(item?.source?.raw || '').trim().slice(0, 2000);
   const seeds = (Array.isArray(item?.seeds) ? item.seeds : []).slice(0, 3);
   const currentDrill = item?.drill && typeof item.drill === 'object'
@@ -288,6 +289,9 @@ export async function regenerateReviewCue(item) {
 7. answer 必须是 target_zh 对应的自然英文答案，直接使用目标${item?.kind === 'term' ? '词汇' : '骨架'}，且与所有参考例句明显不同。
 8. brief、target_zh 与 answer 必须描述同一件事；要求完整${sceneKind}句，不考孤立翻译。只输出 JSON：
 {"trigger":"触发情境与沟通意图","brief":"不同于参考句的具体中文任务","target_zh":"新场景中要用英文说出的完整中文意思","answer":"新场景对应的英文答案"}`;
+  const problemInstruction = problem
+    ? `\n本次聚焦「${problem.label}」：${problem.focus}。参考下面由用户确认的首答证据设计新情境，不能让题目变成原答案纠错或照抄。brief 开头可用简短中文说明关注点，不给英文答案。新题还必须与每条证据的原题、答案和修正版换场景、换至少两个槽位。`
+    : '';
   const user = `【学习者画像】
 ${profileBlock()}
 
@@ -306,15 +310,19 @@ ${JSON.stringify({
     currentDrill,
   }, null, 2)}
 
+${problem ? `【用户确认的练习证据】\n${JSON.stringify(problem.evidence.map(entry => ({
+  brief: entry.brief, target_zh: entry.targetZh, answer: entry.answer,
+  reason: entry.reason, suggestion: entry.suggestion,
+})))}` : ''}
 请生成一条比现有提示更具体、且与参考例句场景明显不同的迁移练习。`;
 
   return await chat(
-    [{ role: 'system', content: sys }, { role: 'user', content: user }],
-    reviewCueSchemaFor(item || {}),
+    [{ role: 'system', content: sys + problemInstruction }, { role: 'user', content: user }],
+    problem ? problemCueSchemaFor(item || {}, problem.evidence) : reviewCueSchemaFor(item || {}),
     {
       temperature: 0.45,
       maxTokens: LLM_OUTPUT_TOKENS.reviewCue,
-      task: 'review_cue',
+      task: problem ? 'problem_cue' : 'review_cue',
     },
   );
 }
@@ -328,6 +336,7 @@ export async function judge({
   brief,
   answer,
   seeds = [],
+  problemFocus = '',
 }) {
   const targetLabel = kind === 'term'
     ? `目标${termCategoryLabel(termCategory)}`
@@ -348,12 +357,15 @@ export async function judge({
 - tighter 只能优化一条已经正确的表达，只做可选精简或组织调整。它不得承担任何语法、搭配、介词、指代、主语关系或核心语义修复；没有纯风格收益就填 null。
 - note 要极短。fix 不为 null 时，必须说明主要错误为什么需要改；不得只写“更自然”“更完整”或“表达有误”。
 - 展示层有三种结果：完全通过、通过但需纠正、未通过。minor 对应“通过但需纠正”，不能伪装成完全无误，也不能因为局部错误阻断目标骨架练习。
+- problem_tags 是可选的证据分类数组；没有可靠问题时返回 []，不为归档而制造错误。category 仅允许 grammar（语法与句式）、word_choice（用词准确）、collocation（固定搭配）、conciseness（可选精简）、target_usage（目标调用）。
+- 每个标签包含 quote（原始答案中逐字连续摘录，保持大小写）与 reason（具体中文原因）。grammar/word_choice/collocation 必须对应 fix 中实际修正；conciseness 仅在无必要纠错且 tighter 有纯风格收益时使用，并说明原句可接受；target_usage 仅在 used_target=false 时使用。每类最多一个标签，不凭标点或猜测归类。
 只输出 JSON：
-{"ok":true/false,"used_target":true/false,"meaning_intact":true/false,"issue_level":"none|minor|blocking","feedback_kind":"keep|correct|optional","main_issue":"一个必须修正的主要问题或 null","verdict":"一句话结论（中文，区分完全通过、通过但需纠正、未通过）","fix":"覆盖全部必要纠错的完整英文修正版或 null","tighter":"只包含可选精简的英文版本或 null","note":"必要纠错的简短原因；没有实质改动则填空字符串"}`;
+{"ok":true/false,"used_target":true/false,"meaning_intact":true/false,"issue_level":"none|minor|blocking","feedback_kind":"keep|correct|optional","main_issue":"一个必须修正的主要问题或 null","verdict":"一句话结论（中文，区分完全通过、通过但需纠正、未通过）","fix":"覆盖全部必要纠错的完整英文修正版或 null","tighter":"只包含可选精简的英文版本或 null","note":"必要纠错的简短原因；没有实质改动则填空字符串","problem_tags":[{"category":"一个类型","quote":"逐字摘录","reason":"中文原因"}]}`;
   const normalizedAnswer = normalizeJudgementText(answer);
   const user = `${targetLabel}：${skeleton}
 目标中文：${zh}
 题目：${brief}
+${problemFocus ? `本次关注点（不改变通过标准）：${problemFocus}` : ''}
 参考例句：${seeds.slice(0, 2).join(' / ') || '（无）'}
 学习者的原始答案（仅用于生成 fix）：${answer}
 忽略大小写和标点后的判卷文本（用于判断骨架与语义）：${normalizedAnswer}`;

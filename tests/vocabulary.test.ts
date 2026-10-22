@@ -6,7 +6,7 @@ vi.mock('../src/storage/database.ts', () => ({
 vi.mock('../src/storage/backup.ts', () => ({}));
 vi.mock('../src/platform/secure.ts', () => ({}));
 import { emptyRecognition, nextRecognition, DAY } from '../src/core/vocabulary';
-import { migratePersistedState } from '../src/storage/state-migrations';
+import { CURRENT_STATE_FORMAT_VERSION, migratePersistedState } from '../src/storage/state-migrations';
 import { vocabularyMaterialSchemaFor } from '../src/llm/schemas';
 import * as S from '../js/store.js';
 import { savePersistedState } from '../src/storage/database';
@@ -194,7 +194,7 @@ describe('vocabulary state and persistence', () => {
     expect(result.items[0]).toMatchObject({ learningGoal: 'production', box: 4, dueAt: start, recognition: { successes: [] } });
     expect(result.vocabularyTasks[0].groupIds).toEqual(['word']);
     expect(result.recognitionSessions[0].hinted).toBe(true);
-    expect(result.formatVersion).toBe(14);
+    expect(result.formatVersion).toBe(CURRENT_STATE_FORMAT_VERSION);
   });
 });
 

@@ -1,3 +1,5 @@
+import { isProblemCategory, type ProblemCategory } from './expression-problems';
+
 export type PracticePhase =
   | 'answering'
   | 'submitting'
@@ -54,6 +56,7 @@ export interface PracticeSettlement {
 }
 
 export interface PracticeSession {
+  problemFocus: { category: ProblemCategory; evidenceIds: string[]; referenceAnswer: string } | null;
   learningGoal: 'production' | 'recognition';
   goalRevision: number;
   id: string;
@@ -206,6 +209,7 @@ export function createPracticeSessionRecord(input: {
     id,
     itemId,
     source,
+    problemFocus: null,
     learningGoal: 'production',
     goalRevision: 0,
     sourceId: text(input.sourceId).trim(),
@@ -259,6 +263,13 @@ export function normalizePracticeSession(value: unknown): PracticeSession | null
     id,
     itemId,
     source,
+    problemFocus: isRecord(value.problemFocus) && isProblemCategory(value.problemFocus.category)
+      ? {
+        category: value.problemFocus.category,
+        evidenceIds: Array.isArray(value.problemFocus.evidenceIds)
+          ? value.problemFocus.evidenceIds.filter((id): id is string => typeof id === 'string') : [],
+        referenceAnswer: text(value.problemFocus.referenceAnswer),
+      } : null,
     learningGoal: value.learningGoal === 'recognition' ? 'recognition' : 'production',
     goalRevision: Number(value.goalRevision) || 0,
     sourceId: text(value.sourceId).trim(),
